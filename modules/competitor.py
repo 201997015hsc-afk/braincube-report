@@ -50,6 +50,20 @@ def _ctr_safe(sends: pd.Series, clicks: pd.Series) -> pd.Series:
 
 def _industry_agg(bench: pd.DataFrame) -> pd.DataFrame:
     """업종별 집계 — 클릭 트래킹 있는 행 기준 CTR 계산"""
+    # 유효한 업종명만 필터링 (빈 문자열, 공백, 숫자만 있는 값 제외)
+    if '분야' not in bench.columns:
+        return pd.DataFrame()
+    _ind_str = bench['분야'].astype(str).str.strip()
+    _valid = (
+        bench['분야'].notna()
+        & (_ind_str != '')
+        & (_ind_str.str.lower() != 'nan')
+        & (~_ind_str.str.fullmatch(r'\d+'))  # 숫자만 있는 값 제외 (예: "7")
+    )
+    bench = bench[_valid].copy()
+    if bench.empty:
+        return pd.DataFrame()
+
     # 전체 볼륨 (발송건/광고비: 모든 행 포함)
     vol = bench.groupby('분야').agg(
         총발송건=('발송건', 'sum'),
@@ -77,6 +91,20 @@ def _industry_agg(bench: pd.DataFrame) -> pd.DataFrame:
 
 def _media_agg(bench: pd.DataFrame) -> pd.DataFrame:
     """매체별 집계 — 클릭 트래킹 있는 행 기준 CTR 계산"""
+    # 유효한 매체명만 필터링 (빈 문자열, 숫자만 있는 값 제외)
+    if '매체' not in bench.columns:
+        return pd.DataFrame()
+    _med_str = bench['매체'].astype(str).str.strip()
+    _valid = (
+        bench['매체'].notna()
+        & (_med_str != '')
+        & (_med_str.str.lower() != 'nan')
+        & (~_med_str.str.fullmatch(r'\d+'))
+    )
+    bench = bench[_valid].copy()
+    if bench.empty:
+        return pd.DataFrame()
+
     vol = bench.groupby('매체').agg(
         총발송건=('발송건', 'sum'),
         총광고비=('광고비', 'sum'),
@@ -102,6 +130,24 @@ def _advertiser_agg(bench: pd.DataFrame) -> pd.DataFrame:
     # 광고주 + 브랜드 + 분야로 그룹핑
     brand_col = '_브랜드' if '_브랜드' in bench.columns else '광고주'
     group_cols = ['광고주', brand_col, '분야'] if brand_col != '광고주' else ['광고주', '분야']
+
+    # 유효한 광고주/브랜드/업종만 필터링 (빈 문자열, 숫자만 있는 값 제외)
+    if '광고주' not in bench.columns or '분야' not in bench.columns:
+        return pd.DataFrame()
+    bench = bench.copy()
+    for _c in group_cols:
+        if _c not in bench.columns:
+            return pd.DataFrame()
+        _s = bench[_c].astype(str).str.strip()
+        _mask = (
+            bench[_c].notna()
+            & (_s != '')
+            & (_s.str.lower() != 'nan')
+            & (~_s.str.fullmatch(r'\d+'))
+        )
+        bench = bench[_mask]
+    if bench.empty:
+        return pd.DataFrame()
 
     vol = bench.groupby(group_cols).agg(
         총발송건=('발송건', 'sum'),
