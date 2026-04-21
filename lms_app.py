@@ -409,11 +409,12 @@ def _render_sidebar() -> tuple:
         _profile = load_profile(client_id) if client_id else None
         _has_fb_setting = bool(_profile and _profile.get('firebase_advertiser'))
 
-        # Bug 6: Firebase 연결 가능 여부 확인 (JSON 키 존재 여부만 빠르게 체크)
-        _fb_available = os.path.exists(
-            os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "dashboard-67685-firebase-adminsdk-fbsvc-05c8ea0dba.json")
-        ) if _has_fb_setting else False
+        # Bug 6: Firebase 연결 가능 여부 확인 (로컬 JSON OR Streamlit secrets)
+        if _has_fb_setting:
+            from modules.firebase_connector import is_firebase_available
+            _fb_available = is_firebase_available()
+        else:
+            _fb_available = False
         _has_fb = _has_fb_setting and _fb_available
         data_mode = "firebase" if _has_fb else "upload"
 

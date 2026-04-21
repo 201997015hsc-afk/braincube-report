@@ -457,14 +457,23 @@ def get_benchmark_weekday(industry: str = None) -> pd.DataFrame | None:
     return wd
 
 
+def is_firebase_available() -> bool:
+    """Firebase 자격증명이 있는지 빠르게 확인.
+
+    로컬 JSON 파일 또는 Streamlit secrets 둘 중 하나라도 있으면 True.
+    (실제 Firestore 접속 시도는 하지 않음 — 빠른 가용성 체크)
+    """
+    has_local_key = _KEY_PATH is not None and os.path.exists(_KEY_PATH)
+    has_secrets = _load_credentials_dict() is not None
+    return has_local_key or has_secrets
+
+
 def get_data_source() -> str:
     """현재 데이터 소스 확인 (UI 표시용)
 
     로컬 JSON 또는 Streamlit secrets 둘 중 하나라도 있으면 Firebase 사용 가능.
     """
-    has_local_key = _KEY_PATH is not None and os.path.exists(_KEY_PATH)
-    has_secrets = _load_credentials_dict() is not None
-    if not has_local_key and not has_secrets:
+    if not is_firebase_available():
         return "연결 안됨"
     try:
         fb = load_from_firestore()
