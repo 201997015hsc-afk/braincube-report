@@ -458,8 +458,13 @@ def get_benchmark_weekday(industry: str = None) -> pd.DataFrame | None:
 
 
 def get_data_source() -> str:
-    """현재 데이터 소스 확인 (UI 표시용)"""
-    if not os.path.exists(_KEY_PATH):
+    """현재 데이터 소스 확인 (UI 표시용)
+
+    로컬 JSON 또는 Streamlit secrets 둘 중 하나라도 있으면 Firebase 사용 가능.
+    """
+    has_local_key = _KEY_PATH is not None and os.path.exists(_KEY_PATH)
+    has_secrets = _load_credentials_dict() is not None
+    if not has_local_key and not has_secrets:
         return "연결 안됨"
     try:
         fb = load_from_firestore()
