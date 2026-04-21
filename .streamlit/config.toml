@@ -1,0 +1,22 @@
+# Streamlit 공통 설정 — 로컬 · Cloud 모두 적용
+
+[theme]
+base = "light"
+primaryColor = "#F7931D"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F7F8FA"
+textColor = "#191F28"
+font = "sans serif"
+
+[server]
+# 파일 업로드 최대 크기 (MB)
+maxUploadSize = 100
+# 업로드된 파일은 임시 저장 (Streamlit Cloud 정책)
+
+[browser]
+gatherUsageStats = false
+
+[client]
+# 오류 상세 표시 여부 (개발 시 true, 운영 시 false 권장)
+showErrorDetails = true
+toolbarMode = "minimal"
