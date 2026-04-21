@@ -39,12 +39,16 @@ def _build_font_candidates() -> list[tuple[str, str, str]]:
             ("NanumGothic", "/Library/Fonts/NanumGothic.ttf",
              "/Library/Fonts/NanumGothicBold.ttf"),
         ]
-    else:  # Linux
+    else:  # Linux (Streamlit Cloud 포함)
         candidates = [
             ("NanumGothic", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
              "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"),
-            ("NotoSansKR", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            ("NanumGothic", "/usr/share/fonts/nanum/NanumGothic.ttf",
+             "/usr/share/fonts/nanum/NanumGothicBold.ttf"),
+            ("NotoSansCJK", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
              "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),
+            ("NotoSansKR", "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.otf",
+             "/usr/share/fonts/truetype/noto/NotoSansKR-Bold.otf"),
         ]
     return candidates
 
@@ -96,8 +100,12 @@ class OnePagerPDF(FPDF):
                     self.add_font(name, 'B', regular, uni=True)
                 self._font_family = name
                 return
-        # fallback: 기본 Helvetica (한글 깨짐 가능)
-        self._font_family = 'Helvetica'
+        # 한글 폰트 없음 — Helvetica는 한글 미지원이라 반드시 크래시. 명확히 알림.
+        raise RuntimeError(
+            "한글 폰트를 찾을 수 없습니다. Streamlit Cloud 배포 시 레포 루트의 "
+            "packages.txt에 'fonts-nanum'을 추가해 주세요. 로컬 실행 시엔 OS에 "
+            "맞는 한글 폰트가 설치되어 있어야 합니다."
+        )
 
     def _set_font(self, style: str = '', size: int = 10):
         self.set_font(self._font_family, style, size)

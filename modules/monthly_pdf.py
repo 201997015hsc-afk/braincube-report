@@ -42,10 +42,19 @@ def _font_candidates() -> list[tuple[str, str, str]]:
         return [
             ("AppleGothic", "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
              "/System/Library/Fonts/Supplemental/AppleGothic.ttf"),
+            ("NanumGothic", "/Library/Fonts/NanumGothic.ttf",
+             "/Library/Fonts/NanumGothicBold.ttf"),
         ]
+    # Linux (Streamlit Cloud 포함) — 여러 후보 경로 탐색
     return [
         ("NanumGothic", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
          "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"),
+        ("NanumGothic", "/usr/share/fonts/nanum/NanumGothic.ttf",
+         "/usr/share/fonts/nanum/NanumGothicBold.ttf"),
+        ("NotoSansCJK", "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+         "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),
+        ("NotoSansKR", "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.otf",
+         "/usr/share/fonts/truetype/noto/NotoSansKR-Bold.otf"),
     ]
 
 
@@ -91,7 +100,14 @@ class MonthlyPDF(FPDF):
                     self.add_font(name, 'B', regular, uni=True)
                 self._ff = name
                 return
-        self._ff = 'Helvetica'
+        # 한글 폰트를 찾지 못한 경우 — Helvetica는 한글 미지원이라 생성 시 크래시
+        # 명확한 에러를 띄워 배포 설정(packages.txt에 fonts-nanum) 누락을 안내
+        raise RuntimeError(
+            "한글 폰트를 찾을 수 없습니다. Streamlit Cloud 배포 시 레포 루트의 "
+            "packages.txt에 'fonts-nanum'을 추가해 주세요. 로컬 실행 시엔 OS에 "
+            "맞는 한글 폰트(Windows: 맑은 고딕, macOS: AppleGothic, Linux: NanumGothic)가 "
+            "설치되어 있어야 합니다."
+        )
 
     def _f(self, style='', size=10):
         self.set_font(self._ff, style, size)
