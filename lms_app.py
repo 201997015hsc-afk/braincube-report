@@ -286,6 +286,10 @@ def _render_sidebar() -> tuple:
                 f"{c.get('name', c['id'])}" for c in clients
             ]
             client_ids_list = [None] + [c['id'] for c in clients]
+            # 방어: 세션에 저장된 인덱스가 유효 범위를 벗어나면(삭제 등) 0으로 리셋
+            _cur = st.session_state.get("client_select")
+            if _cur is None or not isinstance(_cur, int) or _cur < 0 or _cur >= len(client_options):
+                st.session_state["client_select"] = 0
             selected_idx = st.selectbox(
                 "클라이언트 선택",
                 range(len(client_options)),
@@ -293,6 +297,9 @@ def _render_sidebar() -> tuple:
                 label_visibility="collapsed",
                 key="client_select",
             )
+            # 방어: selectbox가 None을 반환하는 극단적 케이스(검색 텍스트 클리어 등) 대비
+            if selected_idx is None or not isinstance(selected_idx, int) or selected_idx >= len(client_ids_list):
+                selected_idx = 0
             client_id = client_ids_list[selected_idx]
         else:
             # 클라이언트 역할: 본인 allowed_clients만 접근 가능
@@ -323,6 +330,10 @@ def _render_sidebar() -> tuple:
                 # 여러 광고주 담당 → 본인 것 중에서만 선택
                 client_options = [f"{c.get('name', c['id'])}" for c in clients]
                 client_ids_list = [c['id'] for c in clients]
+                # 방어: 세션에 저장된 인덱스가 유효 범위를 벗어나면 0으로 리셋
+                _cur = st.session_state.get("client_select_limited")
+                if _cur is None or not isinstance(_cur, int) or _cur < 0 or _cur >= len(client_options):
+                    st.session_state["client_select_limited"] = 0
                 selected_idx = st.selectbox(
                     "담당 광고주 선택",
                     range(len(client_options)),
@@ -330,6 +341,9 @@ def _render_sidebar() -> tuple:
                     label_visibility="collapsed",
                     key="client_select_limited",
                 )
+                # 방어: None 대비
+                if selected_idx is None or not isinstance(selected_idx, int) or selected_idx >= len(client_ids_list):
+                    selected_idx = 0
                 client_id = client_ids_list[selected_idx]
                 # 전역 client_select 키도 동기화
                 _idx_in_all = next(
@@ -710,6 +724,52 @@ def main():
 
     # ── 대시보드 (로그인 완료) ──
     apply_page_style()  # wide layout + CSS
+
+    # ── selectbox 타이핑 차단 (readonly 속성 주입) ──
+    # Streamlit selectbox는 내부에 검색 input이 있어 백스페이스로 텍스트가 지워짐.
+    # 클릭/스크롤 선택은 유지하고 키보드 타이핑만 차단.
+    try:
+        from streamlit.components.v1 import html as _html_comp
+        _html_comp(
+            """
+            <script>
+            (function(){
+              try {
+                var doc = window.parent.document;
+                if (!doc) return;
+                // 중복 옵저버 방지 플래그
+                if (!window.parent.__selectboxReadOnlyPatched) {
+                  window.parent.__selectboxReadOnlyPatched = true;
+                  var patch = function(){
+                    var inputs = doc.querySelectorAll('[data-baseweb="select"] input');
+                    inputs.forEach(function(el){
+                      if (!el.hasAttribute('readonly')) {
+                        el.setAttribute('readonly', '');
+                        el.style.caretColor = 'transparent';
+                        el.style.cursor = 'pointer';
+                      }
+                    });
+                  };
+                  patch();
+                  var observer = new MutationObserver(patch);
+                  observer.observe(doc.body, {childList:true, subtree:true});
+                } else {
+                  // 재실행 시에도 새 요소 즉시 패치
+                  var inputs = doc.querySelectorAll('[data-baseweb="select"] input:not([readonly])');
+                  inputs.forEach(function(el){
+                    el.setAttribute('readonly','');
+                    el.style.caretColor='transparent';
+                    el.style.cursor='pointer';
+                  });
+                }
+              } catch(e) {}
+            })();
+            </script>
+            """,
+            height=0,
+        )
+    except Exception:
+        pass  # 환경에 따라 components 미지원 시 조용히 스킵
 
     # 예약된 토스트 메시지 표시 (등록/수정/삭제 알림)
     _pending_toast = st.session_state.pop('_toast_msg', None)

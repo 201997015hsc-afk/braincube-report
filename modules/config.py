@@ -539,6 +539,12 @@ hr {{
     border-color: {BRAND_PRIMARY} !important;
     box-shadow: 0 0 0 3px rgba(247,147,29,0.08) !important;
 }}
+/* 타이핑 차단 시각 신호 (JS readonly 주입의 CSS 폴백) */
+.stSelectbox [data-baseweb="select"] input,
+.stMultiSelect [data-baseweb="select"] input {{
+    caret-color: transparent !important;
+    cursor: pointer !important;
+}}
 
 /* ===== Multiselect ===== */
 .stMultiSelect [data-baseweb="tag"] {{
