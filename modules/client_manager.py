@@ -568,12 +568,40 @@ def list_archived_reports(client_id: str) -> list[dict]:
 def get_client_stats(client_id: str) -> dict:
     """클라이언트 데이터 통계 요약.
 
-    로컬 merged.csv를 읽어 통계를 계산한다. 클라우드 환경에서 파일이 없으면
-    빈 통계(0건)를 반환 — 예외를 발생시키지 않는다.
+    우선순위:
+      1. Firebase 연동 클라이언트 → Firestore에서 실시간 집계
+      2. 로컬 CSV 업로드 데이터 → merged.csv 읽기
+      3. 둘 다 없으면 빈 통계 (0건)
+
+    실패 시 예외 없이 0 반환.
     """
-    df = load_client_data(client_id)
     reports = list_archived_reports(client_id)
     empty = {"rows": 0, "date_range": "", "media_count": 0, "report_count": len(reports)}
+
+    # 1. Firebase 연동 브랜드가 있으면 Firestore에서 통계 계산
+    profile = load_profile(client_id)
+    fb_brand = profile.get('firebase_advertiser', '') if profile else ''
+    if fb_brand:
+        try:
+            from modules.firebase_connector import load_advertiser_data
+            fb_df = load_advertiser_data(fb_brand)
+            if fb_df is not None and not fb_df.empty:
+                date_range = ""
+                if '날짜' in fb_df.columns:
+                    dmin, dmax = fb_df['날짜'].min(), fb_df['날짜'].max()
+                    if pd.notna(dmin) and pd.notna(dmax):
+                        date_range = f"{dmin:%Y.%m.%d} ~ {dmax:%Y.%m.%d}"
+                return {
+                    "rows": len(fb_df),
+                    "date_range": date_range,
+                    "media_count": fb_df['매체명'].nunique() if '매체명' in fb_df.columns else 0,
+                    "report_count": len(reports),
+                }
+        except Exception as e:
+            _log.warning(f"Firebase 통계 조회 실패 ({client_id}): {e}")
+
+    # 2. 로컬 CSV 데이터 (업로드 방식)
+    df = load_client_data(client_id)
     if df is None or df.empty:
         return empty
     try:
