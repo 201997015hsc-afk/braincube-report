@@ -815,11 +815,63 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
     padding: 8px 12px;
 }}
 
-/* ── selectbox 검색창 숨기기 CSS는 제거 ──
-   Streamlit의 검색 기능이 옵션 목록과 같은 컨테이너에 있어서
-   CSS로 선택적 숨김이 어렵습니다. 검색창이 불편하면 해당 모듈의
-   st.selectbox → st.radio 로 변경하는 것이 안전합니다.
-*/
+/* ── selectbox 드롭다운: 검색창을 맨 위로 올리고 스타일링 ── */
+/* 팝오버 내부를 flex 컬럼으로 만들어 순서 재배치 가능하게 */
+div[data-baseweb="popover"] > div,
+div[data-baseweb="popover"] > div > div {{
+    display: flex !important;
+    flex-direction: column !important;
+}}
+
+/* 검색 input이 들어있는 컨테이너(주로 e1d7a4qp0 클래스)를 맨 위로 */
+div[data-baseweb="popover"] div:has(> input[type="text"]),
+div[data-baseweb="popover"] div:has(> input[aria-autocomplete]) {{
+    order: -999 !important;
+    margin-bottom: 4px !important;
+}}
+
+/* 검색창 스타일링 (깔끔한 검색 UI) */
+div[data-baseweb="popover"] input[type="text"],
+div[data-baseweb="popover"] input[aria-autocomplete] {{
+    background: #F7F8FA !important;
+    border: 1.5px solid #E5E8EB !important;
+    border-radius: 10px !important;
+    padding: 8px 14px 8px 36px !important;
+    margin: 6px 8px 4px 8px !important;
+    width: calc(100% - 16px) !important;
+    font-size: 0.88rem !important;
+    color: #191F28 !important;
+    transition: border-color 0.15s, background 0.15s !important;
+    box-sizing: border-box !important;
+}}
+div[data-baseweb="popover"] input[type="text"]:focus,
+div[data-baseweb="popover"] input[aria-autocomplete]:focus {{
+    background: #FFFFFF !important;
+    border-color: {BRAND_PRIMARY} !important;
+    outline: none !important;
+}}
+
+/* 검색 아이콘 추가 (input 컨테이너에) */
+div[data-baseweb="popover"] div:has(> input[type="text"]) {{
+    position: relative !important;
+}}
+div[data-baseweb="popover"] div:has(> input[type="text"])::before {{
+    content: "🔍";
+    position: absolute;
+    left: 20px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.92rem;
+    pointer-events: none;
+    z-index: 10;
+    opacity: 0.55;
+}}
+
+/* 플레이스홀더 색상 */
+div[data-baseweb="popover"] input::placeholder {{
+    color: #8B95A1 !important;
+    opacity: 1 !important;
+}}
 </style>
 """
 
