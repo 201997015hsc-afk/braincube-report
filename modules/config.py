@@ -815,34 +815,11 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
     padding: 8px 12px;
 }}
 
-/* ── selectbox 드롭다운 열렸을 때 나타나는 검색창 숨기기 ── */
-/* Streamlit 내부 클래스 타겟팅 (e1d7a4qp0 는 검색창 컨테이너) */
-.e1d7a4qp0,
-.st-emotion-cache-1f6p24o,
-div[data-baseweb="popover"] > div > div > div:first-child:has(input) {{
-    display: none !important;
-    height: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: hidden !important;
-}}
-
-/* 팝오버 내부의 검색 input 자체도 숨김 */
-div[data-baseweb="popover"] input[type="text"],
-div[data-baseweb="popover"] input[aria-autocomplete] {{
-    display: none !important;
-    height: 0 !important;
-    width: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    border: 0 !important;
-    opacity: 0 !important;
-}}
-
-/* listbox 위쪽 여백 축소 */
-ul[role="listbox"] {{
-    padding-top: 4px !important;
-}}
+/* ── selectbox 검색창 숨기기 CSS는 제거 ──
+   Streamlit의 검색 기능이 옵션 목록과 같은 컨테이너에 있어서
+   CSS로 선택적 숨김이 어렵습니다. 검색창이 불편하면 해당 모듈의
+   st.selectbox → st.radio 로 변경하는 것이 안전합니다.
+*/
 </style>
 """
 
