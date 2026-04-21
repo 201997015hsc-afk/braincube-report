@@ -545,6 +545,11 @@ hr {{
     caret-color: transparent !important;
     cursor: pointer !important;
 }}
+/* "Press Enter to apply" 힌트 숨김 — 입력 텍스트와 겹침 방지 */
+[data-testid="InputInstructions"],
+[data-testid="stWidgetInstructions"] {{
+    display: none !important;
+}}
 
 /* ===== Multiselect ===== */
 .stMultiSelect [data-baseweb="tag"] {{
