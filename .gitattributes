@@ -1,0 +1,5 @@
+# Linux/Streamlit Cloud에서 해석되는 설정 파일은 LF로 고정 (CRLF 변환 방지)
+packages.txt text eol=lf
+requirements.txt text eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
