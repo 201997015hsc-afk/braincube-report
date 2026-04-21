@@ -1300,10 +1300,11 @@ def render(df: pd.DataFrame):
             selected_industry = "전체"
             if industries:
                 industry_opts = ["전체"] + industries
-                selected_industry = st.selectbox(
+                selected_industry = st.radio(
                     "🏢 벤치마크 업종 필터",
                     industry_opts,
                     index=0,
+                    horizontal=True,
                     key="comp_industry_filter",
                     help="특정 업종을 선택하면 해당 업종 데이터만으로 비교합니다.",
                 )
@@ -1312,10 +1313,11 @@ def render(df: pd.DataFrame):
             selected_product = "LMS"
             if products:
                 product_opts = ["LMS", "전체"] + [p for p in products if p != "LMS"]
-                selected_product = st.selectbox(
+                selected_product = st.radio(
                     "📦 광고상품 필터",
                     product_opts,
                     index=0,
+                    horizontal=True,
                     key="comp_product_filter",
                     help="LMS 외 PUSH/MMS/DA 등을 포함하려면 '전체'를 선택하세요.",
                 )
