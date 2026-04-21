@@ -152,8 +152,11 @@ def render(df: pd.DataFrame):
         st.divider()
         return
 
-    # 분야 필터
-    industries = sorted(bench['분야'].dropna().unique().tolist())
+    # 분야 필터 (빈 문자열/숫자만 있는 값 제외)
+    industries = sorted([
+        ind for ind in bench['분야'].dropna().unique().tolist()
+        if str(ind).strip() and not str(ind).strip().isdigit()
+    ])
     if not industries:
         st.warning("벤치마크 데이터에 업종(분야) 정보가 없습니다.")
         st.divider()

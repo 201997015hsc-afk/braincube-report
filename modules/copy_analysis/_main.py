@@ -67,7 +67,10 @@ def render(df: pd.DataFrame):
         return
 
     # ── 업종 선택 ──
-    industries = sorted(bench[has_msg]['분야'].dropna().unique().tolist())
+    industries = sorted([
+        ind for ind in bench[has_msg]['분야'].dropna().unique().tolist()
+        if str(ind).strip() and not str(ind).strip().isdigit()
+    ])
     if not industries:
         st.warning('업종 정보가 없는 데이터입니다.')
         st.divider()
@@ -101,7 +104,10 @@ def render(df: pd.DataFrame):
         )
 
     # ── 광고주 필터 ──
-    advertisers = sorted(ind_msgs['광고주'].dropna().unique().tolist())
+    advertisers = sorted([
+        a for a in ind_msgs['광고주'].dropna().unique().tolist()
+        if str(a).strip() and not str(a).strip().isdigit()
+    ])
     if _is_client:
         # 클라이언트: 자사 브랜드 기준 자동 필터 (선택 불가)
         # _own_brand는 대행사 필드(실 브랜드)이므로, 업종 내 동일 브랜드를 가진 광고주들 모두 포함
@@ -137,11 +143,13 @@ def render(df: pd.DataFrame):
 
     msg_df = _group_by_message(raw_df, min_sends=50)
 
-    # KPI 카드
+    # KPI 카드 (NaN 방어: 컬럼이 전부 NaN이면 .mean()/.max()도 NaN 반환 → 'nan%' 표시 방지)
     total_msgs = len(msg_df) if not msg_df.empty else 0
-    avg_ctr = float(raw_df['CTR'].mean())
-    avg_len = float(raw_df['문구길이'].mean())
-    max_ctr = float(raw_df['CTR'].max()) if not raw_df.empty else 0
+    _ctr_vals = raw_df['CTR'].dropna()
+    _len_vals = raw_df['문구길이'].dropna()
+    avg_ctr = float(_ctr_vals.mean()) if not _ctr_vals.empty else 0.0
+    avg_len = float(_len_vals.mean()) if not _len_vals.empty else 0.0
+    max_ctr = float(_ctr_vals.max()) if not _ctr_vals.empty else 0.0
 
     k1, k2, k3, k4 = st.columns(4)
     with k1:

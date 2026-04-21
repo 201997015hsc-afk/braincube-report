@@ -580,7 +580,10 @@ def render(df: pd.DataFrame):
         return
 
     # ── 업종 선택 ──
-    industries = sorted(bench['분야'].dropna().unique().tolist())
+    industries = sorted([
+        ind for ind in bench['분야'].dropna().unique().tolist()
+        if str(ind).strip() and not str(ind).strip().isdigit()
+    ])
     if not industries:
         st.warning('벤치마크 데이터에 업종 정보가 없습니다.')
         st.divider()

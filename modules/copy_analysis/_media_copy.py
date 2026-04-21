@@ -28,8 +28,11 @@ def _render_media_copy(raw_df: pd.DataFrame, own_brand: str = None):
         st.caption('매체별 분석 데이터가 부족합니다.')
         return
 
-    # 매체별 집계
-    medias = raw_df['매체'].dropna().unique()
+    # 매체별 집계 (빈 문자열/숫자만 있는 값 제외)
+    medias = [
+        m for m in raw_df['매체'].dropna().unique().tolist()
+        if str(m).strip() and not str(m).strip().isdigit()
+    ]
     if len(medias) < 2:
         st.caption('2개 이상의 매체 데이터가 필요합니다.')
         return
@@ -46,13 +49,22 @@ def _render_media_copy(raw_df: pd.DataFrame, own_brand: str = None):
         avg_len = sub['문구길이'].mean()
         # 단일 소발송 아웃라이어 방지: 발송건 ≥ 500인 행 중 최고 CTR
         eligible = sub[sub['발송건'] >= 500]
-        if len(eligible) > 0:
-            best_row = eligible.loc[eligible['CTR'].idxmax()]
-            best_label = '최고성과 문구'
-        else:
-            # 기준 미달 시 최다 발송 문구로 대체
-            best_row = sub.loc[sub['발송건'].idxmax()]
-            best_label = '최다 발송 문구'
+        best_row = None
+        best_label = '최다 발송 문구'
+        # CTR 전부 NaN이면 idxmax 결과도 NaN → KeyError. 방어적 체크.
+        if len(eligible) > 0 and eligible['CTR'].notna().any():
+            _idx = eligible['CTR'].idxmax()
+            if pd.notna(_idx):
+                best_row = eligible.loc[_idx]
+                best_label = '최고성과 문구'
+        if best_row is None:
+            # 폴백: 최다 발송 문구. 발송건 유효성도 체크.
+            if sub['발송건'].notna().any():
+                _idx = sub['발송건'].idxmax()
+                if pd.notna(_idx):
+                    best_row = sub.loc[_idx]
+        if best_row is None:
+            continue  # 유효한 최고 문구를 찾지 못하면 스킵
         best_brand = best_row.get(brand_col, '')
         is_own = (own_brand and best_brand == own_brand)
         if own_brand and not is_own:
