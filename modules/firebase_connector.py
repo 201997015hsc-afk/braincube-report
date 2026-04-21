@@ -202,8 +202,17 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
 
 @st.cache_data(ttl=300, show_spinner="Firebase에서 데이터 로딩 중...")
 def load_from_firestore() -> pd.DataFrame | None:
-    """Firestore campaigns 컬렉션 전체 → DataFrame (5분 캐시)"""
-    if not os.path.exists(_KEY_PATH):
+    """Firestore campaigns 컬렉션 전체 → DataFrame (5분 캐시)
+
+    인증 우선순위:
+      1. Streamlit secrets (클라우드 배포)
+      2. 로컬 JSON 파일 (로컬 개발)
+    둘 다 없으면 None.
+    """
+    # 자격증명 확보 가능 여부 확인 (로컬 파일 OR Streamlit secrets)
+    has_local_key = _KEY_PATH is not None and os.path.exists(_KEY_PATH)
+    has_secrets = _load_credentials_dict() is not None
+    if not has_local_key and not has_secrets:
         return None
     try:
         db = _get_firestore_client()
