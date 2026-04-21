@@ -415,7 +415,9 @@ def render_account_manager():
                                 users[uid]['password'] = _hash_pw(_new_pw)
                             _save_users(users)
                             st.session_state.pop(_ebtn_key, None)
-                            st.success("저장됨")
+                            st.session_state['_toast_msg'] = (
+                                f"💾 '{_new_name or uid}' 계정 수정됨", "success"
+                            )
                             st.rerun()
                 with _c2:
                     if st.button("취소", key=f'cancel_{_ebtn_key}',
@@ -433,7 +435,9 @@ def render_account_manager():
                         del users[uid]
                         _save_users(users)
                         st.session_state.pop(_dbtn_key, None)
-                        st.success(f"'{uid}' 삭제됨")
+                        st.session_state['_toast_msg'] = (
+                            f"🗑️ '{uid}' 계정 삭제됨", "warning"
+                        )
                         st.rerun()
                 with _dc2:
                     if st.button("취소", key=f'cancel_{_dbtn_key}',
@@ -483,7 +487,9 @@ def render_account_manager():
                     "allowed_clients": new_allowed,
                 }
                 _save_users(users)
-                st.success(f"'{new_name or new_id}' 계정이 추가되었습니다.")
+                st.session_state['_toast_msg'] = (
+                    f"✅ '{new_name or new_id}' 계정이 추가됨", "success"
+                )
                 st.rerun()
 
 

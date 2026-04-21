@@ -143,10 +143,13 @@ def _render_client_manager():
                     new_email.strip(), new_memo.strip(),
                     firebase_advertiser=new_fb_adv,
                 )
-                st.success(f"'{new_name}' 등록 완료 (ID: {cid})")
+                # 페이지 리렌더 후에도 뜨도록 토스트 메시지 예약
+                st.session_state['_toast_msg'] = (
+                    f"✅ '{new_name}' 등록 완료", "success"
+                )
                 st.rerun()
             else:
-                st.warning("클라이언트명을 입력해 주세요.")
+                st.warning("⚠ 클라이언트명을 입력해 주세요.")
 
     # 기존 클라이언트 관리
     if clients:
@@ -175,7 +178,11 @@ def _render_client_manager():
                         st.session_state[f'_editing_{c["id"]}'] = True
                 with _d:
                     if st.button("🗑️ 삭제", key=f"del_{c['id']}", use_container_width=True):
+                        _deleted_name = c.get('name', c['id'])
                         delete_client(c['id'])
+                        st.session_state['_toast_msg'] = (
+                            f"🗑️ '{_deleted_name}' 삭제됨", "warning"
+                        )
                         st.rerun()
 
                 # 인라인 편집 폼
@@ -216,6 +223,9 @@ def _render_client_manager():
                                     memo=new_memo, firebase_advertiser=new_fb,
                                 )
                                 st.session_state.pop(f'_editing_{c["id"]}', None)
+                                st.session_state['_toast_msg'] = (
+                                    f"💾 '{new_name}' 수정 저장됨", "success"
+                                )
                                 st.rerun()
                         with eb2:
                             if st.button("취소", key=f"ecancel_{c['id']}"):
@@ -357,21 +367,11 @@ def _render_sidebar() -> tuple:
                 default_name = profile.get("name", "")
                 default_domain = profile.get("domain", "")
 
-        company_name = st.text_input(
-            "회사/클라이언트명",
-            value=default_name,
-            key="company",
-            placeholder="회사명을 입력하세요",
-        )
-        domain = st.text_input(
-            "🌐 도메인 (선택)",
-            value=default_domain,
-            placeholder="예: braincube.co.kr",
-            key="domain",
-            help="입력하면 로고·회사 정보를 자동으로 가져옵니다.",
-        )
+        # 클라이언트 선택 시 프로필의 이름/도메인을 자동 사용 (UI 입력 제거)
+        company_name = default_name or "LMS Analytics"
+        domain = default_domain
 
-        # 자동 조회 결과
+        # 도메인이 있으면 로고·회사 정보 자동 조회 (백그라운드)
         auto_logo_url = ""
         auto_desc = ""
         if domain:
@@ -379,17 +379,9 @@ def _render_sidebar() -> tuple:
             if info['success']:
                 auto_logo_url = info.get('logo_url', '')
                 auto_desc = info.get('description', '')
-                if info.get('name') and not company_name:
-                    st.session_state['company'] = info['name']
-                    company_name = info['name']
 
-        # 로고
-        logo = st.file_uploader(
-            "로고 직접 업로드 (선택)", type=["png", "jpg", "jpeg", "svg"], key="logo",
-        )
-        if logo:
-            st.image(logo, use_container_width=True)
-        elif auto_logo_url:
+        # 브랜드 표시 (로고는 자동 조회 결과만 사용)
+        if auto_logo_url:
             st.image(auto_logo_url, width=120)
 
         display_name = company_name or "LMS Analytics"
@@ -718,6 +710,14 @@ def main():
 
     # ── 대시보드 (로그인 완료) ──
     apply_page_style()  # wide layout + CSS
+
+    # 예약된 토스트 메시지 표시 (등록/수정/삭제 알림)
+    _pending_toast = st.session_state.pop('_toast_msg', None)
+    if _pending_toast:
+        _msg, _kind = _pending_toast
+        _icon = {'success': '✅', 'warning': '⚠️', 'info': 'ℹ️'}.get(_kind, '')
+        st.toast(_msg, icon=_icon)
+
     uploaded, sheet_name, company_name, date_range, nav_choice, client_id, nav_map = _render_sidebar()
 
     # ── 권한 차단: 클라이언트 역할이 권한 없는 광고주에 접근 시 강제 차단 ──
