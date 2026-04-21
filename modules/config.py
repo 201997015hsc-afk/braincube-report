@@ -814,6 +814,19 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
     font-size: 0.84rem;
     padding: 8px 12px;
 }}
+
+/* ── selectbox 드롭다운 열렸을 때 나타나는 검색창 숨기기 ── */
+[data-baseweb="popover"] [role="listbox"] input {{
+    display: none !important;
+}}
+[data-baseweb="popover"] li[role="option"]:first-child ~ div:has(input),
+[data-baseweb="popover"] input[aria-autocomplete="list"] {{
+    display: none !important;
+}}
+/* 일부 Streamlit 버전 대응 */
+div[data-baseweb="select"] input[type="text"][aria-autocomplete="list"] {{
+    display: none !important;
+}}
 </style>
 """
 
