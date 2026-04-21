@@ -816,27 +816,30 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
 }}
 
 /* ── selectbox 드롭다운 열렸을 때 나타나는 검색창 숨기기 ── */
-/* 팝오버 내부의 모든 input 숨김 (가장 광범위) */
-div[data-baseweb="popover"] input,
-ul[role="listbox"] ~ input,
-[data-baseweb="select"] [role="combobox"] ~ input {{
+/* Streamlit 내부 클래스 타겟팅 (e1d7a4qp0 는 검색창 컨테이너) */
+.e1d7a4qp0,
+.st-emotion-cache-1f6p24o,
+div[data-baseweb="popover"] > div > div > div:first-child:has(input) {{
     display: none !important;
     height: 0 !important;
     padding: 0 !important;
     margin: 0 !important;
-    border: 0 !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
-}}
-
-/* 일부 버전: 검색 input이 들어있는 컨테이너 전체 숨김 */
-div[data-baseweb="popover"] > div > div > div:has(input):not(:has(ul)) {{
-    display: none !important;
-    height: 0 !important;
     overflow: hidden !important;
 }}
 
-/* Streamlit 최신 버전: listbox 위쪽 여백 없애기 */
+/* 팝오버 내부의 검색 input 자체도 숨김 */
+div[data-baseweb="popover"] input[type="text"],
+div[data-baseweb="popover"] input[aria-autocomplete] {{
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    opacity: 0 !important;
+}}
+
+/* listbox 위쪽 여백 축소 */
 ul[role="listbox"] {{
     padding-top: 4px !important;
 }}
