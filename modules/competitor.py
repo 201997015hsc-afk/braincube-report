@@ -1296,7 +1296,14 @@ def render(df: pd.DataFrame):
         # ── 필터 UI (업종 + 광고상품) ──
         fc1, fc2 = st.columns(2)
         with fc1:
-            industries = sorted(bench_raw['분야'].dropna().unique().tolist()) if '분야' in bench_raw.columns else []
+            # 빈 문자열·공백만 있는 값 제외 (라디오 버튼이 이름 없이 뜨는 것 방지)
+            industries = (
+                sorted([
+                    ind for ind in bench_raw['분야'].dropna().unique().tolist()
+                    if str(ind).strip()
+                ])
+                if '분야' in bench_raw.columns else []
+            )
             selected_industry = "전체"
             if industries:
                 industry_opts = ["전체"] + industries
@@ -1309,7 +1316,14 @@ def render(df: pd.DataFrame):
                     help="특정 업종을 선택하면 해당 업종 데이터만으로 비교합니다.",
                 )
         with fc2:
-            products = sorted(bench_raw['광고상품'].dropna().unique().tolist()) if '광고상품' in bench_raw.columns else []
+            # 빈 문자열·공백만 있는 값 제외
+            products = (
+                sorted([
+                    p for p in bench_raw['광고상품'].dropna().unique().tolist()
+                    if str(p).strip()
+                ])
+                if '광고상품' in bench_raw.columns else []
+            )
             selected_product = "LMS"
             if products:
                 product_opts = ["LMS", "전체"] + [p for p in products if p != "LMS"]
