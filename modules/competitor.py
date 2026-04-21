@@ -301,7 +301,7 @@ def _cb_donut(labels: list, values: list, center_text: str,
 # 4. TAB 1 — 업종 벤치마크 비교
 # ══════════════════════════════════════════════
 
-def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame):
+def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame, selected_industry: str = "전체"):
     """자사 CTR/CPC를 업종별 벤치마크와 비교 — Toss-style UI"""
     my = _my_summary(df)
     ind = _industry_agg(bench)
@@ -310,8 +310,16 @@ def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame):
         st.info("벤치마크 데이터에 업종 정보가 없습니다.")
         return
 
-    # ── 전체 벤치마크 평균 (클릭 트래킹 행만) ──
-    tracked = bench[bench['_has_click']] if '_has_click' in bench.columns else bench
+    # ── 선택 업종 필터 ──
+    _is_specific = bool(selected_industry) and selected_industry != "전체"
+
+    # ── 벤치마크 평균 계산 (선택 업종이 있으면 해당 업종만, 없으면 전체) ──
+    if _is_specific:
+        bench_scope = bench[bench['분야'] == selected_industry] if '분야' in bench.columns else bench
+    else:
+        bench_scope = bench
+
+    tracked = bench_scope[bench_scope['_has_click']] if '_has_click' in bench_scope.columns else bench_scope
     tracked_clicks = tracked['클릭수'].fillna(0).sum()
     tracked_sends = tracked['발송건'].sum()
     bench_ctr = calc_ctr_scalar(tracked_clicks, tracked_sends)
@@ -323,6 +331,15 @@ def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame):
     # ── Summary KPI Row ──
     ctr_tag = 'cb-tag-up' if ctr_diff >= 0 else 'cb-tag-down'
     cpc_tag = 'cb-tag-up' if cpc_diff <= 0 else 'cb-tag-down'  # CPC: 낮을수록 좋음
+    _avg_label_suffix = f" ({selected_industry})" if _is_specific else ""
+    _avg_sub = (
+        f"{selected_industry} 업종 · {int(tracked_sends):,}건 집행"
+        if _is_specific else f"{len(ind)}개 업종 기준"
+    )
+    _cpc_sub = (
+        f"{selected_industry} 업종 · {_compact(bench_scope['광고비'].sum(), '원')} 집행"
+        if _is_specific else f"{_compact(bench['광고비'].sum(), '원')} 집행"
+    )
     st.markdown(
         f'<div class="cb-summary">'
         f'  <div class="cb-summary-item">'
@@ -332,9 +349,9 @@ def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame):
         f'      {abs(ctr_diff):.2f}%p {"높음" if ctr_diff >= 0 else "낮음"}</span></div>'
         f'  </div>'
         f'  <div class="cb-summary-item">'
-        f'    <div class="cb-s-label">업종 평균 CTR</div>'
+        f'    <div class="cb-s-label">업종 평균 CTR{_avg_label_suffix}</div>'
         f'    <div class="cb-s-value">{bench_ctr:.2f}%</div>'
-        f'    <div class="cb-s-sub">{len(ind)}개 업종 기준</div>'
+        f'    <div class="cb-s-sub">{_avg_sub}</div>'
         f'  </div>'
         f'  <div class="cb-summary-item">'
         f'    <div class="cb-s-label">자사 CPC</div>'
@@ -343,14 +360,15 @@ def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame):
         f'      {abs(cpc_diff):,.0f}원 {"높음" if cpc_diff > 0 else "낮음"}</span></div>'
         f'  </div>'
         f'  <div class="cb-summary-item">'
-        f'    <div class="cb-s-label">업종 평균 CPC</div>'
+        f'    <div class="cb-s-label">업종 평균 CPC{_avg_label_suffix}</div>'
         f'    <div class="cb-s-value">{bench_cpc:,.0f}원</div>'
-        f'    <div class="cb-s-sub">{_compact(bench["광고비"].sum(), "원")} 집행</div>'
+        f'    <div class="cb-s-sub">{_cpc_sub}</div>'
         f'  </div>'
         f'</div>', unsafe_allow_html=True)
 
     # ── TOP 업종 랭킹 카드 ──
-    top_ind = ind.sort_values('CTR', ascending=False).head(4)
+    ind_ranked = ind.sort_values('CTR', ascending=False).reset_index(drop=True)
+    top_ind = ind_ranked.head(4)
     if len(top_ind) >= 2:
         medals = ["🥇", "🥈", "🥉", "4️⃣"]
         max_ctr = top_ind['CTR'].max()
@@ -359,11 +377,16 @@ def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame):
         for idx, (_, row) in enumerate(top_ind.iterrows()):
             color = cmap.get(row['분야'], CHART_COLORS[0])
             bar_pct = row['CTR'] / max_ctr * 100 if max_ctr > 0 else 0
+            _is_sel = _is_specific and row['분야'] == selected_industry
+            _card_style = (
+                ' style="border:2px solid #FF6B6B;box-shadow:0 4px 12px rgba(255,107,107,0.15)"'
+                if _is_sel else ''
+            )
             with rank_cols[idx]:
                 st.markdown(
-                    f'<div class="cb-rank-card">'
+                    f'<div class="cb-rank-card"{_card_style}>'
                     f'  <div class="cb-rank-medal">{medals[idx]}</div>'
-                    f'  <div class="cb-rank-name">{row["분야"]}</div>'
+                    f'  <div class="cb-rank-name">{row["분야"]}{" ⭐" if _is_sel else ""}</div>'
                     f'  <div class="cb-rank-score">{row["CTR"]:.2f}%</div>'
                     f'  <div class="cb-rank-bar">'
                     f'    <div class="cb-rank-bar-fill" style="background:{color};width:{bar_pct:.0f}%"></div>'
@@ -372,6 +395,22 @@ def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame):
                     f'    {row["캠페인수"]:.0f}건 · CPC {row["CPC"]:,.0f}원'
                     f'  </div>'
                     f'</div>', unsafe_allow_html=True)
+
+    # 선택 업종이 TOP 4에 없으면 별도 순위 안내
+    if _is_specific:
+        _sel_row = ind_ranked[ind_ranked['분야'] == selected_industry]
+        if not _sel_row.empty:
+            _sel_idx = int(_sel_row.index[0])
+            _total = len(ind_ranked)
+            if _sel_idx >= 4:  # TOP 4 밖
+                _r = _sel_row.iloc[0]
+                st.markdown(
+                    f'<div style="margin-top:8px;padding:10px 14px;background:rgba(255,107,107,0.08);'
+                    f'border-left:3px solid #FF6B6B;border-radius:6px;font-size:0.85rem;color:#191F28;">'
+                    f'선택 업종 <b>{selected_industry}</b> — CTR 순위 <b>{_sel_idx + 1}위</b>/{_total}개 업종 · '
+                    f'CTR <b>{_r["CTR"]:.2f}%</b> · CPC <b>{_r["CPC"]:,.0f}원</b> · 캠페인 <b>{_r["캠페인수"]:.0f}건</b>'
+                    f'</div>', unsafe_allow_html=True,
+                )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -396,17 +435,25 @@ def _render_industry_benchmark(df: pd.DataFrame, bench: pd.DataFrame):
         fig = go.Figure()
         for i, (_, row) in enumerate(ind_sorted.iterrows()):
             color = cmap_bar.get(row['분야'], CHART_COLORS[i % len(CHART_COLORS)])
+            _sel_row = _is_specific and row['분야'] == selected_industry
+            _line_w = 5 if _sel_row else 3
+            _mk_size = 20 if _sel_row else 14
+            _mk_border = '#FF6B6B' if _sel_row else 'white'
+            _mk_border_w = 3 if _sel_row else 2
+            _text_color = '#FF6B6B' if _sel_row else '#4E5968'
+            _text_wt = 'font-weight:bold;' if _sel_row else ''
             fig.add_trace(go.Scatter(
                 x=[0, row['CTR']], y=[row['분야'], row['분야']],
-                mode='lines', line=dict(color=color, width=3),
+                mode='lines', line=dict(color=color, width=_line_w),
                 showlegend=False, hoverinfo='skip',
             ))
             fig.add_trace(go.Scatter(
                 x=[row['CTR']], y=[row['분야']],
                 mode='markers+text',
-                marker=dict(size=14, color=color, line=dict(width=2, color='white')),
-                text=[f"{row['CTR']:.2f}%"], textposition='middle right',
-                textfont=dict(size=11, color='#4E5968', family='Pretendard, sans-serif'),
+                marker=dict(size=_mk_size, color=color, line=dict(width=_mk_border_w, color=_mk_border)),
+                text=[f"<b>{row['CTR']:.2f}%</b>" if _sel_row else f"{row['CTR']:.2f}%"],
+                textposition='middle right',
+                textfont=dict(size=12 if _sel_row else 11, color=_text_color, family='Pretendard, sans-serif'),
                 showlegend=False,
                 cliponaxis=False,
                 hovertemplate=f"<b>{row['분야']}</b><br>CTR: {row['CTR']:.2f}%<br>캠페인: {row['캠페인수']:.0f}건<extra></extra>",
@@ -1405,7 +1452,7 @@ def render(df: pd.DataFrame):
         ])
 
         with tab1:
-            _render_industry_benchmark(ref_df, bench)
+            _render_industry_benchmark(ref_df, bench, selected_industry)
         with tab2:
             _render_advertiser_comparison(ref_df, bench, selected_industry)
         with tab3:
