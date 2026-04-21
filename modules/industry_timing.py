@@ -44,13 +44,14 @@ _IT_CSS = """<style>
 .it-day-detail{font-size:.73rem;color:#8B95A1;margin-top:6px}
 .it-day-bar{margin-top:8px;background:#F2F4F6;border-radius:4px;height:6px;overflow:hidden}
 .it-day-bar-fill{height:6px;border-radius:4px;transition:width .5s ease}
-.it-gap-card{display:grid;grid-template-columns:1fr 40px 1fr;align-items:center;
+.it-gap-card{display:grid;grid-template-columns:1fr 80px 1fr;align-items:center;
   padding:14px 20px;margin-bottom:6px;background:#FFF;border-radius:14px;
   box-shadow:0 1px 4px rgba(0,0,0,.03);transition:all .2s ease}
 .it-gap-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-1px)}
 .it-gap-left{text-align:left}
 .it-gap-right{text-align:right}
-.it-gap-mid{text-align:center;font-weight:700;font-size:.82rem;color:#8B95A1}
+.it-gap-mid{text-align:center;font-weight:700;font-size:.82rem;color:#8B95A1;white-space:nowrap}
+.it-gap-mid > div{white-space:nowrap}
 .it-gap-label{font-size:.70rem;color:#8B95A1;font-weight:600}
 .it-gap-val{font-weight:800;font-size:1rem;color:#191F28}
 </style>"""
