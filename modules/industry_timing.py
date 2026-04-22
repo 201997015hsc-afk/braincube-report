@@ -163,10 +163,11 @@ def render(df: pd.DataFrame):
         st.divider()
         return
 
+    from modules.ui_helpers import help_text as _help_text
     selected = st.selectbox(
         "🏢 업종 선택", ["전체"] + industries,
         index=0, key="it_industry",
-        help="특정 업종을 선택하면 해당 업종의 요일별 패턴만 분석합니다.",
+        help=_help_text("industry"),
     )
 
     if selected != "전체":

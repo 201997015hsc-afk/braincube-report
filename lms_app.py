@@ -147,10 +147,11 @@ def _render_client_manager():
             _email = sanitize_input(new_email, max_len=100)
             _memo = sanitize_input(new_memo, max_len=200)
             if _name:
-                cid = create_client(
-                    _name, _domain, _email, _memo,
-                    firebase_advertiser=new_fb_adv,
-                )
+                with st.spinner(f"'{_name}' 등록 중..."):
+                    cid = create_client(
+                        _name, _domain, _email, _memo,
+                        firebase_advertiser=new_fb_adv,
+                    )
                 # 페이지 리렌더 후에도 뜨도록 토스트 메시지 예약
                 st.session_state['_toast_msg'] = (
                     f"✅ '{_name}' 등록 완료", "success"
@@ -188,7 +189,8 @@ def _render_client_manager():
                 with _d:
                     if st.button("🗑️ 삭제", key=f"del_{c['id']}", use_container_width=True):
                         _deleted_name = c.get('name', c['id'])
-                        delete_client(c['id'])
+                        with st.spinner(f"'{_deleted_name}' 삭제 중..."):
+                            delete_client(c['id'])
                         st.session_state['_toast_msg'] = (
                             f"🗑️ '{_deleted_name}' 삭제됨", "warning"
                         )
@@ -299,12 +301,14 @@ def _render_sidebar() -> tuple:
             _cur = st.session_state.get("client_select")
             if _cur is None or not isinstance(_cur, int) or _cur < 0 or _cur >= len(client_options):
                 st.session_state["client_select"] = 0
+            from modules.ui_helpers import help_text as _help_text
             selected_idx = st.selectbox(
                 "클라이언트 선택",
                 range(len(client_options)),
                 format_func=lambda i: client_options[i],
                 label_visibility="collapsed",
                 key="client_select",
+                help=_help_text("client"),
             )
             # 방어: selectbox가 None을 반환하는 극단적 케이스(검색 텍스트 클리어 등) 대비
             if selected_idx is None or not isinstance(selected_idx, int) or selected_idx >= len(client_ids_list):
@@ -560,8 +564,24 @@ def _render_sidebar() -> tuple:
         if role == ROLE_INTERNAL:
             render_account_manager()
 
+        # ── 데이터 신선도 배지 (Firebase 최신 일자) ──
+        try:
+            from modules.firebase_connector import get_latest_data_timestamp
+            from modules.ui_helpers import render_freshness_badge
+            _latest = get_latest_data_timestamp()
+            render_freshness_badge(_latest, source="Firebase", show_absolute=False)
+        except Exception:
+            pass
+
         st.markdown("---")
         st.caption(f"© {datetime.now().year} {company_name or 'LMS Analytics'}")
+
+        # ── 버전 · 배포 정보 푸터 ──
+        try:
+            from modules.version import get_footer_text
+            st.caption(f"🔖 {get_footer_text()}")
+        except Exception:
+            pass
 
     return uploaded, sheet_name, company_name, date_range, nav_choice, client_id, _nav_map
 
@@ -930,13 +950,17 @@ def main():
 
     # 경로 4: 아무것도 없음
     else:
-        st.markdown(
-            '<div class="empty-state">'
-            '<div class="icon">📊</div>'
-            '<div class="msg">사이드바에서 클라이언트를 선택하거나 파일을 업로드해 주세요.</div>'
-            '<div class="sub">클라이언트를 등록하면 데이터를 누적 관리할 수 있습니다.</div>'
-            '</div>',
-            unsafe_allow_html=True,
+        from modules.ui_helpers import render_empty_state
+        render_empty_state(
+            "분석할 데이터가 없습니다",
+            "클라이언트를 선택하거나 파일을 업로드해 분석을 시작하세요. "
+            "클라이언트를 등록하면 데이터를 누적 관리할 수 있습니다.",
+            icon="📊",
+            actions=[
+                ("사이드바 → 클라이언트 선택", "이미 등록된 광고주면 저장 데이터 자동 로드"),
+                ("사이드바 → 데이터 업로드", "엑셀(.xlsx) 또는 CSV 파일 업로드"),
+                ("➕ 새 클라이언트 등록", "장기 관리를 위해 사이드바 '🗂️ 클라이언트 관리'에서"),
+            ],
         )
 
         with st.expander("📋 파일 형식 가이드 & 샘플 데이터", expanded=False):

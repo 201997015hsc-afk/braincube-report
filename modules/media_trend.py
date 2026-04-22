@@ -233,10 +233,14 @@ def render(df: pd.DataFrame):
         st.warning('업종 정보가 없는 데이터입니다.')
         return
 
+    from modules.ui_helpers import help_text as _help_text
     opts = ['전체'] + industries
     col_sel, col_info = st.columns([1, 2])
     with col_sel:
-        selected_ind = st.selectbox('📂 업종', opts, key='media_trend_industry')
+        selected_ind = st.selectbox(
+            '📂 업종', opts, key='media_trend_industry',
+            help=_help_text("industry"),
+        )
     with col_info:
         ind_filtered = bench if selected_ind == '전체' else bench[bench['분야'] == selected_ind]
         n_rows = len(ind_filtered)

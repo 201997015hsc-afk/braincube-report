@@ -589,9 +589,13 @@ def render(df: pd.DataFrame):
         st.divider()
         return
 
+    from modules.ui_helpers import help_text as _help_text
     col_sel, col_info = st.columns([1, 2])
     with col_sel:
-        selected = st.selectbox('📂 비교 업종 선택', industries, key='intel_industry')
+        selected = st.selectbox(
+            '📂 비교 업종 선택', industries, key='intel_industry',
+            help=_help_text("industry"),
+        )
     with col_info:
         ind_bench = bench[bench['분야'] == selected]
         n_camps = len(ind_bench)

@@ -54,15 +54,31 @@ def render(df: pd.DataFrame):
     except Exception:
         bench = None
 
+    from modules.ui_helpers import render_empty_state
     if bench is None or bench.empty or '메시지' not in bench.columns:
-        st.info('🔥 Firebase에 메시지 데이터가 연결되면 문구 분석이 가능합니다.')
+        render_empty_state(
+            "Firebase 메시지 데이터가 없습니다",
+            "문구 성과 분석은 Firebase의 msg 필드 데이터를 기반으로 동작합니다.",
+            icon="🔥",
+            actions=[
+                ("Firebase 브랜드 연결", "사이드바 → 클라이언트 관리에서 Firebase 브랜드를 연결하세요"),
+                ("관리자 문의", "msg 필드 스키마 확인이 필요한 경우"),
+            ],
+        )
         st.divider()
         return
 
     # 메시지가 있는 데이터 존재 확인
     has_msg = bench['메시지'].notna() & (bench['메시지'].astype(str).str.strip() != '')
     if has_msg.sum() == 0:
-        st.warning('메시지 데이터가 비어 있습니다. Firebase에 msg 필드를 확인해 주세요.')
+        render_empty_state(
+            "메시지 데이터가 비어 있습니다",
+            "Firebase는 연결됐으나, msg 필드에 유효한 데이터가 없습니다.",
+            icon="⚠️",
+            actions=[
+                ("Firebase 스키마 확인", "msg 필드가 올바르게 채워져 있는지 확인하세요"),
+            ],
+        )
         st.divider()
         return
 
@@ -87,10 +103,12 @@ def render(df: pd.DataFrame):
                 if _own_industry in industries:
                     _default_ind_idx = industries.index(_own_industry)
 
+    from modules.ui_helpers import help_text as _help_text
     col_sel, col_info = st.columns([1, 2])
     with col_sel:
         selected_ind = st.selectbox(
             '📂 업종 선택', industries, index=_default_ind_idx, key='copy_industry',
+            help=_help_text("industry"),
         )
     with col_info:
         ind_msgs = bench[has_msg & (bench['분야'] == selected_ind)]
@@ -129,6 +147,7 @@ def render(df: pd.DataFrame):
             range(len(adv_options)),
             format_func=lambda i: adv_options[i],
             key='copy_advertiser',
+            help=_help_text("advertiser"),
         )
         selected_adv = advertisers[selected_adv_idx - 1] if selected_adv_idx > 0 else None
 

@@ -1397,6 +1397,7 @@ def render(df: pd.DataFrame):
                 ])
                 if '분야' in bench_raw.columns else []
             )
+            from modules.ui_helpers import help_text as _help_text
             selected_industry = "전체"
             if industries:
                 industry_opts = ["전체"] + industries
@@ -1406,7 +1407,7 @@ def render(df: pd.DataFrame):
                     index=0,
                     horizontal=True,
                     key="comp_industry_filter",
-                    help="특정 업종을 선택하면 해당 업종 데이터만으로 비교합니다.",
+                    help=_help_text("industry"),
                 )
         with fc2:
             # 빈 문자열·공백만 있는 값 제외
@@ -1426,7 +1427,7 @@ def render(df: pd.DataFrame):
                     index=0,
                     horizontal=True,
                     key="comp_product_filter",
-                    help="LMS 외 PUSH/MMS/DA 등을 포함하려면 '전체'를 선택하세요.",
+                    help=_help_text("product"),
                 )
 
         # 광고상품 필터 적용
