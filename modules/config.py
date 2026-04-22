@@ -42,15 +42,16 @@ def sanitize_input(text, max_len: int = 200) -> str:
 BRAND_PRIMARY = "#F7931D"
 CHART_COLORS = ['#F7931D', '#3182F6', '#20C997', '#FF6B6B', '#845EF7', '#FFA726', '#42A5F5', '#66BB6A']
 
-COLOR_TEXT = "#191F28"
-COLOR_TEXT_SEC = "#8B95A1"
-COLOR_TEXT_TER = "#4E5968"
-COLOR_BG = "#F7F8FA"
+COLOR_TEXT = "#111827"
+COLOR_TEXT_SEC = "#6B7280"
+COLOR_TEXT_TER = "#4B5563"
+COLOR_BG = "#FAFBFC"          # Linear 느낌의 아주 옅은 배경
 COLOR_CARD = "#FFFFFF"
-COLOR_BORDER = "#EBEEF2"
-COLOR_DANGER = "#F44336"
-COLOR_SUCCESS = "#00C853"
-COLOR_WARNING = "#FF9100"
+COLOR_BORDER = "#E5E7EB"      # Linear/Notion 표준 보더
+COLOR_BORDER_SUBTLE = "#F3F4F6"
+COLOR_DANGER = "#EF4444"
+COLOR_SUCCESS = "#10B981"
+COLOR_WARNING = "#F59E0B"
 COLOR_BLUE = "#3182F6"
 
 # ──────────────────────────────────────────────
@@ -112,15 +113,15 @@ def is_card_or_telecom(media_name: str) -> bool:
 # ──────────────────────────────────────────────
 PLOTLY_LAYOUT = dict(
     template='plotly_white',
-    font=dict(family='Pretendard, -apple-system, sans-serif', size=12, color=COLOR_TEXT_TER),
+    font=dict(family='Pretendard, Inter, -apple-system, sans-serif', size=12, color=COLOR_TEXT_TER),
     paper_bgcolor='rgba(0,0,0,0)',
     plot_bgcolor='rgba(0,0,0,0)',
-    margin=dict(t=56, l=48, r=24, b=48),
-    title=dict(text="", font=dict(size=15, color=COLOR_TEXT, family='Pretendard, sans-serif'), x=0, xanchor='left'),
-    xaxis=dict(showgrid=False, linecolor='#EBEEF2', tickfont=dict(size=11, color=COLOR_TEXT_SEC), title=""),
-    yaxis=dict(gridcolor='#F0F1F3', gridwidth=1, showline=False, tickfont=dict(size=11, color=COLOR_TEXT_SEC), title=""),
+    margin=dict(t=48, l=44, r=20, b=44),
+    title=dict(text="", font=dict(size=14, color=COLOR_TEXT, family='Pretendard, Inter, sans-serif'), x=0, xanchor='left'),
+    xaxis=dict(showgrid=False, linecolor=COLOR_BORDER, tickfont=dict(size=11, color=COLOR_TEXT_SEC), title=""),
+    yaxis=dict(gridcolor=COLOR_BORDER_SUBTLE, gridwidth=1, showline=False, tickfont=dict(size=11, color=COLOR_TEXT_SEC), title=""),
     legend=dict(font=dict(size=11), bgcolor='rgba(0,0,0,0)'),
-    hoverlabel=dict(bgcolor='#191F28', font_color='white', font_size=12, bordercolor='#191F28'),
+    hoverlabel=dict(bgcolor=COLOR_TEXT, font_color='white', font_size=12, bordercolor=COLOR_TEXT),
 )
 
 
@@ -181,23 +182,25 @@ _TOSS_CSS = f"""
     background: rgba(247, 147, 29, 0.12);
     color: {COLOR_TEXT};
 }}
+/* Linear/Notion 감성 — 볼드 줄이고 letter-spacing 차분하게 */
 h1 {{
     color: {COLOR_TEXT} !important;
-    font-weight: 800 !important;
-    font-size: 1.75rem !important;
-    letter-spacing: -0.03em;
-    line-height: 1.35 !important;
+    font-weight: 600 !important;
+    font-size: 1.6rem !important;
+    letter-spacing: -0.02em;
+    line-height: 1.3 !important;
 }}
 h2 {{
     color: {COLOR_TEXT} !important;
-    font-weight: 700 !important;
-    font-size: 1.3rem !important;
-    letter-spacing: -0.02em;
+    font-weight: 600 !important;
+    font-size: 1.2rem !important;
+    letter-spacing: -0.015em;
 }}
 h3 {{
     color: {COLOR_TEXT} !important;
-    font-weight: 700 !important;
-    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    font-size: 1.05rem !important;
+    letter-spacing: -0.01em;
 }}
 
 /* ===== Custom Scrollbar ===== */
@@ -218,7 +221,7 @@ h3 {{
 
 /* ===== Sidebar ===== */
 section[data-testid="stSidebar"] {{
-    background: linear-gradient(180deg, #FFFFFF 0%, #F8F9FB 100%);
+    background: #F8F9FB;
     border-right: 1px solid {COLOR_BORDER};
 }}
 section[data-testid="stSidebar"] .stMarkdown p {{
@@ -227,11 +230,10 @@ section[data-testid="stSidebar"] .stMarkdown p {{
 }}
 .sidebar-brand {{
     text-align: center;
-    padding: 24px 16px 28px 16px;
+    padding: 20px 16px 20px 16px;
     border-bottom: 1px solid {COLOR_BORDER};
-    margin-bottom: 24px;
-    background: linear-gradient(135deg, rgba(247,147,29,0.04) 0%, rgba(49,130,246,0.04) 100%);
-    border-radius: 0 0 20px 20px;
+    margin-bottom: 20px;
+    background: transparent;
 }}
 .sidebar-brand .name {{
     font-size: 1.2rem;
@@ -278,15 +280,14 @@ section[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:
 /* ===== Metric Cards (st.metric) ===== */
 [data-testid="metric-container"] {{
     background: {COLOR_CARD};
-    border: none;
-    border-radius: 20px;
-    padding: 22px 24px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 0.5px 1px rgba(0,0,0,0.02);
-    transition: transform 0.25s cubic-bezier(0.4,0,0.2,1), box-shadow 0.25s cubic-bezier(0.4,0,0.2,1);
+    border: 1px solid {COLOR_BORDER};
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: none;
+    transition: border-color 0.15s ease;
 }}
 [data-testid="metric-container"]:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.03);
+    border-color: #D1D5DB;
 }}
 [data-testid="stMetricLabel"] {{
     color: {COLOR_TEXT_SEC} !important;
@@ -298,104 +299,93 @@ section[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:
     letter-spacing: -0.03em;
 }}
 
-/* ===== Custom KPI Cards ===== */
+/* ===== Custom KPI Cards — Linear/Notion 스타일 (플랫·섬세 보더) ===== */
 .toss-kpi {{
     background: {COLOR_CARD};
-    border-radius: 20px;
-    padding: 32px 20px 28px 20px;
-    text-align: center;
-    border: none;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 0.5px 1px rgba(0,0,0,0.02);
+    border: 1px solid {COLOR_BORDER};
+    border-radius: 10px;
+    padding: 20px 20px 18px 20px;
+    text-align: left;
+    box-shadow: none;
+    transition: border-color 0.15s ease;
     position: relative;
-    overflow: hidden;
-    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
 }}
 .toss-kpi:hover {{
-    transform: translateY(-4px);
-    box-shadow: 0 16px 32px rgba(0,0,0,0.08), 0 4px 8px rgba(0,0,0,0.04);
-}}
-.toss-kpi::before {{
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 3px;
-    background: linear-gradient(90deg, {BRAND_PRIMARY}, #FF6B6B, {COLOR_BLUE});
-    opacity: 0.85;
+    border-color: #D1D5DB;
 }}
 .toss-kpi .label {{
-    font-size: 0.76rem;
+    font-size: 0.78rem;
     color: {COLOR_TEXT_SEC};
-    font-weight: 600;
-    margin-bottom: 14px;
-    letter-spacing: -0.01em;
+    font-weight: 500;
+    margin-bottom: 10px;
+    letter-spacing: -0.005em;
 }}
 .toss-kpi .value {{
-    font-size: 1.85rem;
-    font-weight: 800;
+    font-size: 1.75rem;
+    font-weight: 600;
     color: {COLOR_TEXT};
-    letter-spacing: -0.04em;
+    letter-spacing: -0.02em;
     line-height: 1.15;
+    font-feature-settings: "tnum";
 }}
 .toss-kpi .delta {{
-    display: inline-block;
-    font-size: 0.78rem;
-    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.76rem;
+    font-weight: 500;
     margin-top: 10px;
     color: {COLOR_TEXT_SEC};
-    padding: 3px 12px;
-    border-radius: 10px;
+    padding: 2px 8px;
+    border-radius: 6px;
     background: {COLOR_BG};
 }}
 .toss-kpi .delta.up {{
-    color: #E53935;
-    background: #FFF5F5;
+    color: {COLOR_SUCCESS};
+    background: rgba(16,185,129,0.10);
 }}
 .toss-kpi .delta.down {{
-    color: {COLOR_BLUE};
-    background: #F0F7FF;
+    color: {COLOR_DANGER};
+    background: rgba(239,68,68,0.10);
 }}
 
-/* ===== Insight Cards ===== */
+/* ===== Insight Cards — Linear 감성 ===== */
 .toss-insight {{
     background: {COLOR_CARD};
-    border-radius: 20px;
-    padding: 32px 20px 28px 20px;
-    text-align: center;
-    border: none;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 0.5px 1px rgba(0,0,0,0.02);
-    min-height: 160px;
+    border: 1px solid {COLOR_BORDER};
+    border-radius: 10px;
+    padding: 22px 20px;
+    text-align: left;
+    box-shadow: none;
+    min-height: 140px;
     display: flex;
     flex-direction: column;
-    align-items: center;
     justify-content: center;
-    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+    transition: border-color 0.15s ease;
     position: relative;
 }}
 .toss-insight:hover {{
-    transform: translateY(-4px);
-    box-shadow: 0 16px 32px rgba(0,0,0,0.08), 0 4px 8px rgba(0,0,0,0.04);
+    border-color: #D1D5DB;
 }}
 .toss-insight .icon-dot {{
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    margin-bottom: 14px;
-    opacity: 0.8;
+    margin-bottom: 10px;
+    opacity: 0.9;
 }}
 .toss-insight .title {{
-    font-size: 0.76rem;
+    font-size: 0.78rem;
     color: {COLOR_TEXT_SEC};
-    font-weight: 600;
-    margin-bottom: 12px;
+    font-weight: 500;
+    margin-bottom: 8px;
 }}
 .toss-insight .highlight {{
-    font-size: 1.15rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    margin-bottom: 10px;
-    line-height: 1.3;
+    font-size: 1.1rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    margin-bottom: 8px;
+    line-height: 1.35;
 }}
 .toss-insight .desc {{
     font-size: 0.82rem;
@@ -403,76 +393,67 @@ section[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:
     line-height: 1.55;
 }}
 
-/* ===== Alert Cards ===== */
+/* ===== Alert Cards — Linear 감성 (플랫·얇은 보더·은은한 배경) ===== */
 .toss-alert {{
-    border-radius: 16px;
-    padding: 22px 26px;
+    border-radius: 10px;
+    padding: 16px 20px;
     margin-bottom: 12px;
     background: {COLOR_CARD};
-    border: none;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.03);
-    border-left: 4px solid {COLOR_BORDER};
-    transition: all 0.2s ease;
+    border: 1px solid {COLOR_BORDER};
+    border-left: 3px solid {COLOR_BORDER};
+    box-shadow: none;
+    transition: border-color 0.15s ease;
 }}
 .toss-alert:hover {{
-    box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+    border-color: #D1D5DB;
 }}
 .toss-alert.danger {{
-    background: linear-gradient(135deg, #FFF5F5 0%, #FFFFFF 100%);
+    background: rgba(239,68,68,0.04);
     border-left-color: {COLOR_DANGER};
 }}
 .toss-alert.success {{
-    background: linear-gradient(135deg, #F0FFF4 0%, #FFFFFF 100%);
+    background: rgba(16,185,129,0.04);
     border-left-color: {COLOR_SUCCESS};
 }}
 .toss-alert.warning {{
-    background: linear-gradient(135deg, #FFFBF0 0%, #FFFFFF 100%);
+    background: rgba(245,158,11,0.05);
     border-left-color: {COLOR_WARNING};
 }}
 .toss-alert.info {{
-    background: linear-gradient(135deg, #F0F7FF 0%, #FFFFFF 100%);
+    background: rgba(49,130,246,0.04);
     border-left-color: {COLOR_BLUE};
 }}
 .toss-alert .alert-title {{
-    font-weight: 700;
-    font-size: 0.95rem;
+    font-weight: 600;
+    font-size: 0.92rem;
     color: {COLOR_TEXT};
-    margin-bottom: 8px;
-    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+    letter-spacing: -0.005em;
 }}
 .toss-alert .alert-body {{
-    font-size: 0.85rem;
+    font-size: 0.84rem;
     color: {COLOR_TEXT_TER};
-    line-height: 1.75;
+    line-height: 1.65;
 }}
 
-/* ===== Section Header ===== */
+/* ===== Section Header — Linear 감성 (깔끔 · 세로 바 제거) ===== */
 .section-header {{
-    margin-bottom: 24px;
-    padding: 14px 0 14px 22px;
-    position: relative;
-}}
-.section-header::before {{
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 10px;
-    bottom: 10px;
-    width: 4px;
-    background: linear-gradient(180deg, {BRAND_PRIMARY}, {COLOR_BLUE});
-    border-radius: 2px;
+    margin-bottom: 20px;
+    padding: 6px 0 8px 0;
+    border-bottom: 1px solid {COLOR_BORDER_SUBTLE};
 }}
 .section-header .title {{
-    font-size: 1.25rem;
-    font-weight: 700;
+    font-size: 1.2rem;
+    font-weight: 600;
     color: {COLOR_TEXT};
-    letter-spacing: -0.02em;
-    margin-bottom: 6px;
+    letter-spacing: -0.015em;
+    margin-bottom: 4px;
 }}
 .section-header .desc {{
-    font-size: 0.84rem;
+    font-size: 0.82rem;
     color: {COLOR_TEXT_SEC};
     line-height: 1.55;
+    margin-bottom: 4px;
 }}
 
 /* ===== Tabs ===== */
@@ -483,67 +464,65 @@ section[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:
     padding-bottom: 0;
 }}
 .stTabs [data-baseweb="tab"] {{
-    border-radius: 12px 12px 0 0;
-    padding: 12px 24px;
+    border-radius: 0;
+    padding: 10px 18px;
     color: {COLOR_TEXT_SEC};
-    font-weight: 600;
-    font-size: 0.88rem;
+    font-weight: 500;
+    font-size: 0.85rem;
     border-bottom: 2px solid transparent;
     margin-bottom: -2px;
-    transition: all 0.2s ease;
+    transition: color 0.15s ease, border-color 0.15s ease;
 }}
 .stTabs [data-baseweb="tab"]:hover {{
-    color: {COLOR_TEXT_TER};
-    background: rgba(247,147,29,0.03);
+    color: {COLOR_TEXT};
+    background: transparent;
 }}
 .stTabs [aria-selected="true"] {{
-    color: {BRAND_PRIMARY} !important;
-    border-bottom: 2.5px solid {BRAND_PRIMARY};
+    color: {COLOR_TEXT} !important;
+    border-bottom: 2px solid {BRAND_PRIMARY};
     background: transparent;
-    font-weight: 700;
+    font-weight: 600;
 }}
 
-/* ===== Buttons ===== */
+/* ===== Buttons — Linear 감성 ===== */
 .stDownloadButton > button {{
     background: {COLOR_CARD} !important;
     border: 1px solid {COLOR_BORDER} !important;
-    border-radius: 12px !important;
+    border-radius: 8px !important;
     color: {COLOR_TEXT} !important;
-    font-weight: 600 !important;
-    font-size: 0.88rem !important;
-    padding: 10px 20px !important;
-    transition: all 0.25s cubic-bezier(0.4,0,0.2,1);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    font-weight: 500 !important;
+    font-size: 0.85rem !important;
+    padding: 8px 16px !important;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    box-shadow: none;
 }}
 .stDownloadButton > button:hover {{
-    background: #FFF8F0 !important;
-    border-color: {BRAND_PRIMARY} !important;
-    color: {BRAND_PRIMARY} !important;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(247,147,29,0.10);
+    background: #FAFBFC !important;
+    border-color: #D1D5DB !important;
+    color: {COLOR_TEXT} !important;
 }}
 
 /* ===== Divider ===== */
 hr {{
     border: none !important;
-    border-top: 1px solid {COLOR_BORDER} !important;
-    margin: 40px 0 !important;
+    border-top: 1px solid {COLOR_BORDER_SUBTLE} !important;
+    margin: 32px 0 !important;
 }}
 
 /* ===== Radio/Select ===== */
-.stRadio > div {{ gap: 8px; }}
+.stRadio > div {{ gap: 6px; }}
 
-/* ===== Plotly chart container ===== */
+/* ===== Plotly chart container — Linear 감성 (얇은 보더) ===== */
 [data-testid="stPlotlyChart"] {{
     background: {COLOR_CARD};
-    border: none;
-    border-radius: 20px;
-    padding: 12px 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 0.5px 1px rgba(0,0,0,0.02);
-    transition: box-shadow 0.25s ease;
+    border: 1px solid {COLOR_BORDER};
+    border-radius: 10px;
+    padding: 10px 8px;
+    box-shadow: none;
+    transition: border-color 0.15s ease;
 }}
 [data-testid="stPlotlyChart"]:hover {{
-    box-shadow: 0 6px 20px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.03);
+    border-color: #D1D5DB;
 }}
 
 /* ===== Slider ===== */
