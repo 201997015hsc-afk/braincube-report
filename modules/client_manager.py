@@ -256,29 +256,58 @@ def _migrate_local_profiles_to_firestore(db) -> bool:
 # 캐시된 프로필 로더 (Firestore 비용 절감)
 # ──────────────────────────────────────────────
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _load_all_profiles_cached() -> dict:
-    """전체 클라이언트 프로필 로드 (60초 캐시).
+    """전체 클라이언트 프로필 로드 (10분 캐시).
 
     우선순위:
       1. Firestore (`client_profiles` 컬렉션)
-         - 최초 호출 시 로컬 프로필이 있으면 마이그레이션 시도
       2. 로컬 `.clients/*/profile.json` (Firestore 연결 실패 시 폴백)
+
+    * 마이그레이션은 별도 함수로 분리 — 세션 최초 1회만 호출
+    * Firestore 할당량 절감을 위해 TTL 10분으로 확장
     """
     db = _get_db()
     if db is not None:
-        # 최초 1회: 로컬 → Firestore 마이그레이션 (멱등)
+        profiles = _firestore_load_profiles(db)
+        if profiles is not None:
+            # Firestore 조회 성공을 세션에 기록 (UI 경고 표시용)
+            try:
+                st.session_state['_firestore_healthy'] = True
+            except Exception:
+                pass
+            return profiles
+        # Firestore 조회 실패를 세션에 기록
         try:
-            _migrate_local_profiles_to_firestore(db)
+            st.session_state['_firestore_healthy'] = False
         except Exception:
             pass
 
-        profiles = _firestore_load_profiles(db)
-        if profiles is not None:
-            return profiles
-
     # 폴백: 로컬 파일 시스템
     return _local_list_profiles()
+
+
+def _ensure_migration_done():
+    """세션 최초 1회만 로컬 → Firestore 마이그레이션 수행.
+
+    매 rerun마다 Firestore 스트림 쿼리가 발생하지 않도록,
+    세션 상태에 플래그를 저장해 중복 호출 방지.
+    """
+    try:
+        if st.session_state.get('_profile_migration_checked'):
+            return
+        st.session_state['_profile_migration_checked'] = True
+    except Exception:
+        # session_state 접근 불가 환경 (CLI 진단 등)
+        return
+
+    db = _get_db()
+    if db is None:
+        return
+    try:
+        _migrate_local_profiles_to_firestore(db)
+    except Exception as e:
+        _log.warning(f"마이그레이션 실패 (무시): {e}")
 
 
 def _invalidate_profile_cache():
@@ -298,6 +327,8 @@ def _invalidate_profile_cache():
 
 def list_clients() -> list[dict]:
     """등록된 전체 클라이언트 목록 반환. [{id, name, created, ...}, ...]"""
+    # 세션 최초 1회만 마이그레이션 수행 (중복 Firestore 스트림 쿼리 방지)
+    _ensure_migration_done()
     profiles = _load_all_profiles_cached()
     clients: list[dict] = []
     for cid in sorted(profiles.keys()):
