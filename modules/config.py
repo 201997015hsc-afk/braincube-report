@@ -1,7 +1,40 @@
 """
 Toss-style 디자인 시스템 + 상수 + UI 헬퍼 모듈
 """
+import html as _html
+import re as _re
+
 import streamlit as st
+
+
+# ──────────────────────────────────────────────
+# 보안 유틸 — 사용자 입력 HTML 이스케이프
+# ──────────────────────────────────────────────
+def esc_html(text) -> str:
+    """사용자 입력을 HTML 이스케이프. None/비문자열도 안전 처리.
+
+    st.markdown(..., unsafe_allow_html=True)에 사용자 입력을 삽입할 때
+    필수로 거쳐야 하는 함수. XSS (<script>, <img onerror=>) 등 차단.
+    """
+    if text is None:
+        return ""
+    return _html.escape(str(text), quote=True)
+
+
+def sanitize_input(text, max_len: int = 200) -> str:
+    """사용자 입력 정제 — 이스케이프 + 길이 제한 + 제어 문자 제거.
+
+    회원가입·클라이언트 등록 등 저장 전 입력 검증에 사용.
+    """
+    if text is None:
+        return ""
+    s = str(text).strip()
+    # 제어 문자 제거 (\x00-\x1f 중 \t\n 제외)
+    s = _re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', s)
+    # 길이 제한
+    if len(s) > max_len:
+        s = s[:max_len]
+    return s
 
 # ──────────────────────────────────────────────
 # 브랜드 & 색상
