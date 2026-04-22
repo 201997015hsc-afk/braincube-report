@@ -171,50 +171,83 @@ def _migrate_from_local_users_json(db) -> bool:
 # Public: 사용자 로드 / 저장 (캐싱 적용)
 # ──────────────────────────────────────────────
 
-# Firestore 접근 비용 절감을 위해 60초 캐시
-@st.cache_data(ttl=60, show_spinner=False)
+# Firestore 접근 비용 절감을 위해 10분 캐시 (할당량 이슈 대응)
+@st.cache_data(ttl=600, show_spinner=False)
 def _load_users_cached() -> dict:
-    """Firestore에서 전체 사용자 로드 (60초 캐시).
+    """Firestore에서 전체 사용자 로드 (10분 캐시).
 
     우선순위:
       1. Firestore (`app_users` 컬렉션)
-         - 최초 호출 시 로컬 users.json이 있으면 마이그레이션 시도
-         - 컬렉션이 여전히 비어있으면 기본 계정 생성 후 저장
       2. 로컬 users.json (Firestore 연결 실패 시 폴백)
       3. 기본 계정 (두 경로 모두 실패 시 메모리 반환)
+
+    * 마이그레이션 및 기본 계정 초기화는 별도 함수로 분리
     """
     db = _get_db()
 
     # 1. Firestore 경로
     if db is not None:
-        # 최초 1회: 로컬 → Firestore 마이그레이션 (멱등)
-        try:
-            _migrate_from_local_users_json(db)
-        except Exception:
-            pass
-
         users = _firestore_load_users(db)
+        if users is not None and users:
+            try:
+                st.session_state['_firestore_healthy'] = True
+            except Exception:
+                pass
+            return users
+        # Firestore 조회는 성공했으나 비어있음 → 초기화 경로로 이관
         if users is not None:
-            if users:
-                return users
-            # 컬렉션이 비어있음 → 기본 계정 생성
-            defaults = _default_users()
-            _firestore_save_users(db, defaults)
-            return defaults
+            # 빈 컬렉션이라 보일 수 있음. 세션 초기화 함수가 처리.
+            pass
+        else:
+            try:
+                st.session_state['_firestore_healthy'] = False
+            except Exception:
+                pass
 
     # 2. 로컬 폴백
     local = _local_load_users()
     if local:
         return local
 
-    # 3. 기본 계정 생성 (로컬에도 저장 시도)
-    defaults = _default_users()
-    _local_save_users(defaults)
-    return defaults
+    # 3. 기본 계정 (메모리 — 실패 시 최소한 로그인 가능 유지)
+    return _default_users()
+
+
+def _ensure_user_migration_done():
+    """세션 최초 1회만 사용자 마이그레이션 + 기본 계정 시드 수행.
+
+    매 rerun마다 Firestore 스트림 쿼리가 발생하지 않도록,
+    세션 상태에 플래그를 저장해 중복 호출 방지.
+    """
+    try:
+        if st.session_state.get('_user_migration_checked'):
+            return
+        st.session_state['_user_migration_checked'] = True
+    except Exception:
+        return
+
+    db = _get_db()
+    if db is None:
+        return
+    try:
+        _migrate_from_local_users_json(db)
+        # 마이그레이션 후 여전히 비어있으면 기본 계정 시드
+        users = _firestore_load_users(db)
+        if users is not None and not users:
+            defaults = _default_users()
+            _firestore_save_users(db, defaults)
+            try:
+                _load_users_cached.clear()
+            except Exception:
+                pass
+    except Exception as e:
+        _log_mod = __import__('logging').getLogger(__name__)
+        _log_mod.warning(f"사용자 마이그레이션 실패 (무시): {e}")
 
 
 def _load_users() -> dict:
     """사용자 dict 반환 (캐시 적용). 공개 API 유지."""
+    _ensure_user_migration_done()
     return _load_users_cached()
 
 
@@ -704,6 +737,44 @@ _LOGIN_LOGO_SVG = (
 )
 
 
+# ──────────────────────────────────────────────
+# 로그인 Rate Limiting (브루트포스 방지)
+# ──────────────────────────────────────────────
+_MAX_LOGIN_ATTEMPTS = 5
+_LOCKOUT_DURATION_SEC = 300  # 5분
+
+
+def _check_rate_limit() -> tuple[bool, int]:
+    """로그인 시도 제한 확인.
+
+    반환: (허용 여부, 남은 잠금 시간[초])
+      - 허용: (True, 0)
+      - 잠김: (False, 남은 초)
+    """
+    import time
+    lockout_until = st.session_state.get('_login_lockout_until', 0)
+    now = time.time()
+    if lockout_until > now:
+        return False, int(lockout_until - now)
+    return True, 0
+
+
+def _record_failed_login():
+    """로그인 실패 기록. N회 초과 시 잠금."""
+    import time
+    attempts = st.session_state.get('_login_failed_attempts', 0) + 1
+    st.session_state['_login_failed_attempts'] = attempts
+    if attempts >= _MAX_LOGIN_ATTEMPTS:
+        st.session_state['_login_lockout_until'] = time.time() + _LOCKOUT_DURATION_SEC
+        st.session_state['_login_failed_attempts'] = 0  # 리셋
+
+
+def _clear_failed_logins():
+    """로그인 성공 시 실패 카운터 리셋."""
+    st.session_state.pop('_login_failed_attempts', None)
+    st.session_state.pop('_login_lockout_until', None)
+
+
 def render_login_page():
     """로그인 페이지 렌더링. 인증 성공 시 True 반환."""
     st.markdown(_LOGIN_CSS, unsafe_allow_html=True)
@@ -729,16 +800,39 @@ def render_login_page():
         submitted = st.form_submit_button("로그인", use_container_width=True, type="primary")
 
     if submitted:
+        # Rate limit 확인
+        allowed, remaining = _check_rate_limit()
+        if not allowed:
+            mins = remaining // 60
+            secs = remaining % 60
+            st.error(
+                f"⛔ 로그인 시도 횟수를 초과했습니다. "
+                f"{mins}분 {secs}초 후 다시 시도해 주세요."
+            )
+            return False
+
         if not username or not password:
             st.error("아이디와 비밀번호를 입력해 주세요.")
             return False
 
         user = _authenticate(username.strip(), password)
         if user:
+            _clear_failed_logins()
             st.session_state["_auth_user"] = user
             st.rerun()
         else:
-            st.error("아이디 또는 비밀번호가 올바르지 않습니다.")
+            _record_failed_login()
+            remaining_attempts = _MAX_LOGIN_ATTEMPTS - st.session_state.get('_login_failed_attempts', 0)
+            if remaining_attempts > 0:
+                st.error(
+                    f"아이디 또는 비밀번호가 올바르지 않습니다. "
+                    f"(남은 시도: {remaining_attempts}회)"
+                )
+            else:
+                st.error(
+                    "⛔ 로그인 시도 횟수를 초과했습니다. "
+                    "5분간 로그인이 제한됩니다."
+                )
             return False
 
     st.markdown(
