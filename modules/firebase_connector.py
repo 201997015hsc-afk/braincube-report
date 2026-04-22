@@ -232,6 +232,31 @@ def load_benchmark() -> pd.DataFrame | None:
     return load_from_firestore()
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def get_latest_data_timestamp():
+    """벤치마크 데이터의 가장 최근 일자(datetime 객체) 반환. 실패 시 None.
+
+    사이드바 "📡 최신 데이터: N시간 전" 배지용.
+    10분 캐시로 부담 최소화.
+    """
+    df = load_from_firestore()
+    if df is None or df.empty:
+        return None
+    if '일자' not in df.columns:
+        return None
+    try:
+        latest = pd.to_datetime(df['일자'], errors='coerce').max()
+        if pd.isna(latest):
+            return None
+        # timezone 없으면 UTC로 간주
+        if latest.tzinfo is None:
+            from datetime import timezone as _tz
+            latest = latest.tz_localize(_tz.utc)
+        return latest.to_pydatetime()
+    except Exception:
+        return None
+
+
 # ──────────────────────────────────────────────
 # 광고주별 데이터 조회 (클라이언트 리포트용)
 # ──────────────────────────────────────────────
