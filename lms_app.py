@@ -10,7 +10,11 @@ from datetime import datetime
 import streamlit as st
 import pandas as pd
 
-from modules.config import apply_page_style, section_header, alert_card_html, kpi_card_html
+# 로깅 초기화 (Sentry 연동 포함) — 다른 모듈 import 전에 실행
+from modules.log_setup import get_logger, cleanup_session_state
+_log = get_logger(__name__)
+
+from modules.config import apply_page_style, section_header, alert_card_html, kpi_card_html, esc_html, sanitize_input
 from modules.data_processing import (
     load_and_preprocess, get_sheet_names, find_default_sheet, filter_by_date_range,
     ensure_derived_columns, _cast_and_enrich, _normalize_columns, _merge_duplicate_metric_cols,
@@ -137,15 +141,19 @@ def _render_client_manager():
         new_email = st.text_input("이메일 (선택)", key="new_client_email", placeholder="pm@client.com")
         new_memo = st.text_input("메모 (선택)", key="new_client_memo", placeholder="2026 상반기 캠페인")
         if st.button("등록", key="btn_create_client", type="primary"):
-            if new_name.strip():
+            # 입력 정제 (제어문자 제거 + 길이 제한)
+            _name = sanitize_input(new_name, max_len=60)
+            _domain = sanitize_input(new_domain, max_len=100)
+            _email = sanitize_input(new_email, max_len=100)
+            _memo = sanitize_input(new_memo, max_len=200)
+            if _name:
                 cid = create_client(
-                    new_name.strip(), new_domain.strip(),
-                    new_email.strip(), new_memo.strip(),
+                    _name, _domain, _email, _memo,
                     firebase_advertiser=new_fb_adv,
                 )
                 # 페이지 리렌더 후에도 뜨도록 토스트 메시지 예약
                 st.session_state['_toast_msg'] = (
-                    f"✅ '{new_name}' 등록 완료", "success"
+                    f"✅ '{_name}' 등록 완료", "success"
                 )
                 st.rerun()
             else:
@@ -156,16 +164,17 @@ def _render_client_manager():
         with st.expander("🗂️ 클라이언트 관리", expanded=False):
             for c in clients:
                 stats = get_client_stats(c['id'])
-                date_str = stats['date_range'] if stats['date_range'] else ""
+                date_str = esc_html(stats['date_range']) if stats['date_range'] else ""
                 fb_adv = c.get('firebase_advertiser', '')
                 fb_badge = (
                     f"<span style='background:#3182F6;color:white;border-radius:4px;"
-                    f"padding:2px 6px;font-size:.65rem;margin-left:4px;'>📊 {fb_adv}</span>"
+                    f"padding:2px 6px;font-size:.65rem;margin-left:4px;'>📊 {esc_html(fb_adv)}</span>"
                     if fb_adv else ""
                 )
+                _name_disp = esc_html(c.get('name', c['id']))
                 st.markdown(
                     f"<div style='background:#F8F9FA;border-radius:10px;padding:12px 14px;margin-bottom:8px'>"
-                    f"<div style='font-weight:700;font-size:.95rem;color:#191F28;margin-bottom:4px'>{c.get('name', c['id'])}{fb_badge}</div>"
+                    f"<div style='font-weight:700;font-size:.95rem;color:#191F28;margin-bottom:4px'>{_name_disp}{fb_badge}</div>"
                     f"<div style='font-size:.75rem;color:#8B95A1'>"
                     f"{stats['rows']:,}행 · 매체 {stats['media_count']}개"
                     + (f" · {date_str}" if date_str else "")
@@ -710,7 +719,47 @@ def _load_firebase_data(client_id: str):
     return df, display_sheet
 
 
+def _render_health_check():
+    """헬스체크 엔드포인트 — ?health=1 쿼리 시 간단 상태 반환.
+
+    UptimeRobot 등 외부 모니터링 서비스가 5분마다 접근해
+    서비스 가용성 확인하는 용도. 인증 없이 공개.
+    """
+    st.set_page_config(page_title="Health", page_icon="✅", layout="centered")
+    import datetime as _dt
+    # Firebase 연결 상태 간단 체크
+    fb_ok = False
+    try:
+        from modules.firebase_connector import is_firebase_available
+        fb_ok = is_firebase_available()
+    except Exception:
+        fb_ok = False
+    status = {
+        "status": "ok" if fb_ok else "degraded",
+        "firebase": "ok" if fb_ok else "unavailable",
+        "time": _dt.datetime.utcnow().isoformat() + "Z",
+    }
+    # 최소한의 JSON-like 출력 (UptimeRobot은 HTTP 200과 키워드 매칭으로 판정)
+    st.code(str(status), language="json")
+    st.caption("Health check endpoint — do not index.")
+
+
 def main():
+    # ── 헬스체크 분기 (로그인 없이 공개) ──
+    try:
+        _qp = st.query_params
+        if 'health' in _qp:
+            _render_health_check()
+            return
+    except Exception:
+        # 구버전 Streamlit 호환
+        try:
+            if 'health' in st.experimental_get_query_params():
+                _render_health_check()
+                return
+        except Exception:
+            pass
+
     # ── 로그인 게이트 ──
     if not is_logged_in():
         st.set_page_config(
@@ -721,6 +770,9 @@ def main():
         )
         render_login_page()
         return
+
+    # ── 세션 상태 정리 (임시 플래그 제거 · 메모리 누수 방지) ──
+    cleanup_session_state()
 
     # ── 대시보드 (로그인 완료) ──
     apply_page_style()  # wide layout + CSS
@@ -777,6 +829,16 @@ def main():
         _msg, _kind = _pending_toast
         _icon = {'success': '✅', 'warning': '⚠️', 'info': 'ℹ️'}.get(_kind, '')
         st.toast(_msg, icon=_icon)
+
+    # ── Firestore 상태 경고 배너 ──
+    # 할당량 초과/연결 실패 시 사용자에게 명확히 알림 (데이터 사라진 것처럼 보이는 혼란 방지)
+    if st.session_state.get('_firestore_healthy') is False:
+        st.warning(
+            "⚠️ Firebase 연결 일시 불안정 — 클라이언트/사용자 목록이 불완전할 수 있습니다. "
+            "데이터는 안전하게 보관되어 있으며, 잠시 후 자동 복구됩니다. "
+            "지속되면 관리자에게 문의해 주세요.",
+            icon="⚠️",
+        )
 
     uploaded, sheet_name, company_name, date_range, nav_choice, client_id, nav_map = _render_sidebar()
 
