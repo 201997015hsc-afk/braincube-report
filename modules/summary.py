@@ -295,12 +295,12 @@ def render(df: pd.DataFrame):
                         "유의미하게 하락한 매체가 없습니다.",
                     )
         else:
-            st.markdown(
-                f'<div style="color:{COLOR_TEXT_SEC};font-size:0.85rem;padding:12px 0;">'
-                f'매체별 변동이 유의미하지 않습니다 '
-                f'(양월 발송 ≥ {MIN_SENDS_FOR_CTR_CLAIM:,}건 및 CTR 변화 ≥ '
-                f'{CTR_CHANGE_THRESHOLD}%p 기준 미달).</div>',
-                unsafe_allow_html=True,
+            # Best/Watch 모두 조건 미달 — 카드 스타일 통일 (Linear 중립 인포)
+            _render_highlight_card(
+                "info", "Best/Watch · 해당 없음",
+                f"매체별 변동이 유의미하지 않습니다 "
+                f"(양월 발송 ≥ <b>{MIN_SENDS_FOR_CTR_CLAIM:,}건</b> 및 CTR 변화 ≥ "
+                f"<b>{CTR_CHANGE_THRESHOLD}%p</b> 기준 미달).",
             )
     elif len(merged) == 1:
         merged['CTR변화'] = merged['CTR_당월'] - merged['CTR_전월']
