@@ -298,7 +298,12 @@ def _render_simulator(df: pd.DataFrame):
 
 
 def render(df: pd.DataFrame):
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="전략 제안",
+        kicker="액션",
+        subtitle="데이터 기반으로 자동 도출된 개선 포인트와 액션 아이템, 그리고 매체별 증액 시뮬레이터를 제공합니다.",
+    )
     ref_df, period_label = render_ref_period_selector(df, "biz")
     _render_strategy(ref_df)
     _render_simulator(ref_df)
-    st.markdown("<br>", unsafe_allow_html=True)

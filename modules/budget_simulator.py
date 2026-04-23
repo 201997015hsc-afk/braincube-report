@@ -408,11 +408,15 @@ def _render_detail_list(result: pd.DataFrame):
 # ──────────────────────────────────────────────
 
 def render(df: pd.DataFrame):
-    st.markdown(section_header(
-        "예산 증액 시뮬레이터",
-        "예산을 더 쓰면 발송량이 늘고, 클릭수도 따라 올라갑니다. "
-        "수확체감 효과가 자동 반영된 현실적 시뮬레이션입니다.",
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="예산 증액 시뮬레이터",
+        kicker="내부 도구",
+        subtitle=(
+            "예산을 더 쓰면 발송량이 늘고, 클릭수도 따라 올라갑니다. "
+            "수확체감 효과가 자동 반영된 현실적 시뮬레이션입니다."
+        ),
+    )
 
     # ── 면책 안내 ──
     st.markdown(alert_card_html(

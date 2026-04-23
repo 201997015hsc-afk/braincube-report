@@ -443,11 +443,15 @@ def _render_media_card(media, m_df, pred, acc, all_media):
 # ──────────────────────────────────────────────
 
 def render(df: pd.DataFrame):
-    st.markdown(section_header(
-        "매체별 클릭 예측",
-        "WMA + 선형회귀 + 전년동월 앙상블 모델로 예측합니다. "
-        "80%/95% 신뢰구간을 함께 제공합니다.",
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="클릭 예측",
+        kicker="내부 도구",
+        subtitle=(
+            "WMA + 선형회귀 + 전년동월 앙상블 모델로 매체별 예측을 생성합니다. "
+            "80%/95% 신뢰구간을 함께 제공합니다."
+        ),
+    )
 
     # ── 면책 안내 ──
     st.markdown(alert_card_html(

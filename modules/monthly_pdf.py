@@ -661,11 +661,13 @@ def generate_monthly_pdf(
 def render(df: pd.DataFrame):
     import streamlit as st
     from modules.config import section_header, alert_card_html
+    from modules.ui_helpers import render_page_header
 
-    st.markdown(section_header(
-        "월간 PDF 리포트",
-        "클라이언트 보고용 멀티페이지 PDF 리포트를 자동 생성합니다.",
-    ), unsafe_allow_html=True)
+    render_page_header(
+        title="월간 PDF 리포트",
+        kicker="액션",
+        subtitle="클라이언트 보고용 멀티페이지 PDF 리포트를 자동 생성합니다.",
+    )
 
     if df.empty:
         st.info("데이터가 없습니다. 먼저 데이터를 업로드하세요.")

@@ -504,10 +504,12 @@ def render(df: pd.DataFrame):
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown(section_header(
-        "매체 간 예산 최적 배분",
-        "예산 방향에 따라 매체를 자동 추천하고, 효율 기반으로 최적 배분합니다.",
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="예산 최적 배분",
+        kicker="내부 도구",
+        subtitle="예산 방향에 따라 매체를 자동 추천하고, 효율 기반으로 최적 배분합니다.",
+    )
 
     # ── 최소 데이터 검증 ──
     if '년월' not in df.columns or df['년월'].nunique() < 2:

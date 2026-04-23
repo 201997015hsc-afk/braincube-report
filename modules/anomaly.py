@@ -133,10 +133,12 @@ def _anomaly_by_media(df: pd.DataFrame, threshold: float, period_label: str = ""
 
 
 def render(df: pd.DataFrame):
-    st.markdown(section_header(
-        "이상치 자동 감지",
-        "일별 지표가 평소 대비 비정상적으로 급등/급락한 날을 Z-score 기반으로 자동 탐지합니다.",
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="이상치 감지",
+        kicker="내부 도구",
+        subtitle="일별 지표가 평소 대비 비정상적으로 급등/급락한 날을 Z-score 기반으로 자동 탐지합니다.",
+    )
 
     # ── 기준 기간 + 민감도 ──
     ref_df, period_label = render_ref_period_selector(df, "anomaly")

@@ -562,11 +562,15 @@ def _render_sales_points(my: dict, peers: pd.DataFrame, industry: str):
 # ──────────────────────────────────────────────
 
 def render(df: pd.DataFrame):
-    st.markdown(section_header(
-        '업종 내 경쟁 인텔리전스',
-        '동종 업계 광고주 대비 포지셔닝을 확인합니다. '
-        '"다른 데는 어떤데요?"에 대한 데이터 기반 답변입니다.',
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="업종 내 경쟁 인텔리전스",
+        kicker="업종 인사이트",
+        subtitle=(
+            '동종 업계 광고주 대비 포지셔닝을 확인합니다. '
+            '"다른 데는 어떤데요?"에 대한 데이터 기반 답변입니다.'
+        ),
+    )
 
     # ── Firebase 데이터 로드 ──
     try:

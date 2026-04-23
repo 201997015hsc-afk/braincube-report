@@ -40,13 +40,18 @@ def render(df: pd.DataFrame):
             if _prof:
                 _own_brand = _prof.get('firebase_advertiser', '')
 
-    st.markdown(section_header(
-        '문구(카피) 성과 분석',
+    from modules.ui_helpers import render_page_header
+    _sub = (
         '어떤 메시지가 클릭을 이끌어내는지 데이터로 확인합니다. '
         '금액/CTA/이모지 등 패턴별 성과 · 최적 문구 길이 · 매체별 효과적인 문구를 분석합니다.'
-        + ('' if _role == ROLE_INTERNAL else
-           ' <span style="color:#8B95A1">(⚠ 타 광고주 문구는 개인정보·기밀 보호를 위해 익명화됩니다)</span>'),
-    ), unsafe_allow_html=True)
+    )
+    if _role != ROLE_INTERNAL:
+        _sub += ' <span style="color:#6B7280">(⚠ 타 광고주 문구는 개인정보·기밀 보호를 위해 익명화됩니다)</span>'
+    render_page_header(
+        title="문구(카피) 성과 분석",
+        kicker="업종 인사이트",
+        subtitle=_sub,
+    )
 
     # ── Firebase 데이터 로드 ──
     try:

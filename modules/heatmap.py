@@ -603,10 +603,12 @@ def _render_weekday_guide(period_stats: pd.DataFrame, totals: pd.DataFrame):
 def render(df: pd.DataFrame):
     st.markdown(_CSS, unsafe_allow_html=True)
 
-    st.markdown(section_header(
-        "매체별 성과 분석",
-        "어떤 매체가 좋은지, 그리고 언제 보내면 좋은지를 함께 봅니다.",
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="매체 히트맵",
+        kicker="액션",
+        subtitle="어떤 매체가 좋은지, 그리고 언제 보내면 좋은지를 함께 봅니다.",
+    )
 
     render_insights(detect_heatmap(df))
 

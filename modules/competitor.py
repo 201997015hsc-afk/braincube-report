@@ -1126,10 +1126,12 @@ def render(df: pd.DataFrame):
     # ── 커스텀 CSS 주입 ──
     st.markdown(_CB_CSS, unsafe_allow_html=True)
 
-    st.markdown(section_header(
-        "경쟁사 · 업종 벤치마크 분석",
-        "Firebase 실시간 데이터 기반 업종/매체/광고주 벤치마크 비교를 제공합니다.",
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="경쟁사 · 업종 벤치마크",
+        kicker="업종 인사이트",
+        subtitle="Firebase 실시간 데이터 기반 업종/매체/광고주 벤치마크 비교를 제공합니다.",
+    )
 
     from modules.data_processing import render_ref_period_selector
     ref_df, period_label = render_ref_period_selector(df, "comp")

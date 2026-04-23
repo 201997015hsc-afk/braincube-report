@@ -208,11 +208,15 @@ def _build_stacked_compare(df: pd.DataFrame, metric: str, suffix: str) -> go.Fig
 # ──────────────────────────────────────────────
 
 def render(df: pd.DataFrame):
-    st.markdown(section_header(
-        '매체 트렌드',
-        '업계 전반에서 어떤 매체가 상승세이고 어떤 매체가 하락세인지 확인합니다. '
-        'Firebase 벤치마크 데이터 기반 · 전월 대비 MoM 변화 분석.',
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="매체 트렌드",
+        kicker="업종 인사이트",
+        subtitle=(
+            "업계 전반에서 어떤 매체가 상승세이고 어떤 매체가 하락세인지 확인합니다. "
+            "Firebase 벤치마크 데이터 기반 · 전월 대비 MoM 변화 분석."
+        ),
+    )
 
     # ── Firebase 데이터 로드 ──
     try:

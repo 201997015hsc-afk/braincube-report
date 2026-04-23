@@ -252,10 +252,12 @@ def send_email(
 # ──────────────────────────────────────────────
 
 def render(df: pd.DataFrame):
-    st.markdown(section_header(
-        "정기 리포트 이메일 발송",
-        "PPTX 리포트를 자동 생성하여 클라이언트에게 이메일로 발송합니다.",
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="이메일 발송",
+        kicker="내부 도구",
+        subtitle="PPTX 리포트를 자동 생성하여 클라이언트에게 이메일로 발송합니다.",
+    )
 
     config = _load_config()
 

@@ -141,10 +141,12 @@ def _build_my_weekday(df: pd.DataFrame) -> pd.DataFrame:
 def render(df: pd.DataFrame):
     st.markdown(_IT_CSS, unsafe_allow_html=True)
 
-    st.markdown(section_header(
-        "업종별 최적 발송 타이밍",
-        "크로스 클라이언트 데이터 기반 — 업종별로 어떤 요일에 발송해야 CTR이 높은지 분석합니다.",
-    ), unsafe_allow_html=True)
+    from modules.ui_helpers import render_page_header
+    render_page_header(
+        title="업종별 최적 발송 타이밍",
+        kicker="업종 인사이트",
+        subtitle="크로스 클라이언트 데이터 기반 — 업종별로 어떤 요일에 발송해야 CTR이 높은지 분석합니다.",
+    )
 
     bench = _load_bench_with_weekday()
 
