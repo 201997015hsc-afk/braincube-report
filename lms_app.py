@@ -41,44 +41,46 @@ from modules import (
 # 각 아이템: {"cat": 카테고리, "label": 표시 이름, "icon": 기하학 아이콘,
 #            "render": 렌더 함수, "scope": "client"|"internal"}
 
-# 카테고리별 컬러 점 (Option 3 스타일 — 카테고리 그룹화 시각화)
-_NAV_CAT_DOT = {
-    "성과 분석":       "🔵",
-    "업종 인사이트":   "🟠",
-    "액션":           "🟢",
-    "내부 도구":       "⚫",
+# 카테고리별 CSS 도트 클래스 (이모지 아님 — CSS에서 색·크기 제어)
+_NAV_CAT_CLASS = {
+    "성과 분석":     "cat-perf",
+    "업종 인사이트": "cat-ind",
+    "액션":         "cat-act",
+    "내부 도구":     "cat-admin",
 }
 
 
 def _dot(cat: str) -> str:
-    return _NAV_CAT_DOT.get(cat, "⚪")
+    """카테고리 헤더 옆에 표시할 CSS 도트 HTML 스팬 반환."""
+    cls = _NAV_CAT_CLASS.get(cat, "cat-admin")
+    return f'<span class="nav-cat-dot {cls}"></span>'
 
 
 _NAV_ITEMS = [
     # ── 성과 분석 (파랑) ──
-    {"cat": "성과 분석", "label": "월간 요약",      "icon": _NAV_CAT_DOT["성과 분석"], "render": summary.render, "scope": "client"},
-    {"cat": "성과 분석", "label": "KPI 및 인사이트", "icon": _NAV_CAT_DOT["성과 분석"], "render": kpi.render,     "scope": "client"},
-    {"cat": "성과 분석", "label": "트렌드 분석",    "icon": _NAV_CAT_DOT["성과 분석"], "render": trend.render,   "scope": "client"},
+    {"cat": "성과 분석", "label": "월간 요약",      "icon": "", "render": summary.render, "scope": "client"},
+    {"cat": "성과 분석", "label": "KPI 및 인사이트", "icon": "", "render": kpi.render,     "scope": "client"},
+    {"cat": "성과 분석", "label": "트렌드 분석",    "icon": "", "render": trend.render,   "scope": "client"},
 
     # ── 업종 인사이트 (오렌지) ──
-    {"cat": "업종 인사이트", "label": "경쟁사 분석",             "icon": _NAV_CAT_DOT["업종 인사이트"], "render": competitor.render,      "scope": "client"},
-    {"cat": "업종 인사이트", "label": "업종 내 경쟁 인텔리전스", "icon": _NAV_CAT_DOT["업종 인사이트"], "render": industry_intel.render,  "scope": "client"},
-    {"cat": "업종 인사이트", "label": "매체 트렌드",             "icon": _NAV_CAT_DOT["업종 인사이트"], "render": media_trend.render,     "scope": "client"},
-    {"cat": "업종 인사이트", "label": "문구 성과 분석",          "icon": _NAV_CAT_DOT["업종 인사이트"], "render": copy_analysis.render,   "scope": "client"},
-    {"cat": "업종 인사이트", "label": "업종별 최적 발송 타이밍", "icon": _NAV_CAT_DOT["업종 인사이트"], "render": industry_timing.render, "scope": "client"},
+    {"cat": "업종 인사이트", "label": "경쟁사 분석",             "icon": "", "render": competitor.render,      "scope": "client"},
+    {"cat": "업종 인사이트", "label": "업종 내 경쟁 인텔리전스", "icon": "", "render": industry_intel.render,  "scope": "client"},
+    {"cat": "업종 인사이트", "label": "매체 트렌드",             "icon": "", "render": media_trend.render,     "scope": "client"},
+    {"cat": "업종 인사이트", "label": "문구 성과 분석",          "icon": "", "render": copy_analysis.render,   "scope": "client"},
+    {"cat": "업종 인사이트", "label": "업종별 최적 발송 타이밍", "icon": "", "render": industry_timing.render, "scope": "client"},
 
     # ── 액션 (초록) ──
-    {"cat": "액션", "label": "전략 제안",       "icon": _NAV_CAT_DOT["액션"], "render": business.render,    "scope": "client"},
-    {"cat": "액션", "label": "매체 히트맵",     "icon": _NAV_CAT_DOT["액션"], "render": heatmap.render,     "scope": "client"},
-    {"cat": "액션", "label": "월간 PDF 리포트", "icon": _NAV_CAT_DOT["액션"], "render": monthly_pdf.render, "scope": "client"},
+    {"cat": "액션", "label": "전략 제안",       "icon": "", "render": business.render,    "scope": "client"},
+    {"cat": "액션", "label": "매체 히트맵",     "icon": "", "render": heatmap.render,     "scope": "client"},
+    {"cat": "액션", "label": "월간 PDF 리포트", "icon": "", "render": monthly_pdf.render, "scope": "client"},
 
     # ── 내부 도구 (어두운 회색) — 관리자 전용 ──
-    {"cat": "내부 도구", "label": "이상치 감지",         "icon": _NAV_CAT_DOT["내부 도구"], "render": anomaly.render,         "scope": "internal"},
-    {"cat": "내부 도구", "label": "클릭 예측",           "icon": _NAV_CAT_DOT["내부 도구"], "render": prediction.render,      "scope": "internal"},
-    {"cat": "내부 도구", "label": "예산 최적 배분",       "icon": _NAV_CAT_DOT["내부 도구"], "render": budget_optimizer.render, "scope": "internal"},
-    {"cat": "내부 도구", "label": "예산 증액 시뮬레이터", "icon": _NAV_CAT_DOT["내부 도구"], "render": budget_simulator.render, "scope": "internal"},
-    {"cat": "내부 도구", "label": "상세 히트맵",         "icon": _NAV_CAT_DOT["내부 도구"], "render": heatmap.render,         "scope": "internal"},
-    {"cat": "내부 도구", "label": "이메일 발송",          "icon": _NAV_CAT_DOT["내부 도구"], "render": email_report.render,    "scope": "internal"},
+    {"cat": "내부 도구", "label": "이상치 감지",         "icon": "", "render": anomaly.render,         "scope": "internal"},
+    {"cat": "내부 도구", "label": "클릭 예측",           "icon": "", "render": prediction.render,      "scope": "internal"},
+    {"cat": "내부 도구", "label": "예산 최적 배분",       "icon": "", "render": budget_optimizer.render, "scope": "internal"},
+    {"cat": "내부 도구", "label": "예산 증액 시뮬레이터", "icon": "", "render": budget_simulator.render, "scope": "internal"},
+    {"cat": "내부 도구", "label": "상세 히트맵",         "icon": "", "render": heatmap.render,         "scope": "internal"},
+    {"cat": "내부 도구", "label": "이메일 발송",          "icon": "", "render": email_report.render,    "scope": "internal"},
 ]
 
 
@@ -366,9 +368,9 @@ def _render_sidebar() -> tuple:
                 # 단일 광고주 → 자동 선택, 드롭다운 숨김
                 client_id = clients[0]['id']
                 st.markdown(
-                    f'<div style="background:rgba(49,130,246,0.08);border-radius:8px;'
-                    f'padding:8px 12px;font-size:0.82rem;color:#3182F6;">'
-                    f'🔗 <b>{clients[0].get("name", clients[0]["id"])}</b>'
+                    f'<div style="border:1px solid #E5E7EB;border-radius:8px;'
+                    f'padding:8px 12px;font-size:0.84rem;color:#111827;background:#FFF;">'
+                    f'<b style="font-weight:500;">{esc_html(clients[0].get("name", clients[0]["id"]))}</b>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -402,14 +404,7 @@ def _render_sidebar() -> tuple:
                 )
                 st.session_state['client_select'] = _idx_in_all
 
-        # 현재 클라이언트 뱃지
-        if client_id and role == ROLE_INTERNAL:
-            profile = load_profile(client_id)
-            badge_name = profile.get('name', client_id) if profile else client_id
-            st.markdown(
-                f'<div class="client-badge active">✅ {badge_name}</div>',
-                unsafe_allow_html=True,
-            )
+        # (클라이언트 뱃지 제거 — selectbox에서 이미 보임. Linear 미니멀 원칙)
 
         # 클라이언트 전환 감지 → 캐시 초기화
         # Bug 7+13: data_mode도 초기화해야 이전 클라이언트 모드가 새 클라이언트에 잔존 안 함
@@ -445,16 +440,8 @@ def _render_sidebar() -> tuple:
                 auto_logo_url = info.get('logo_url', '')
                 auto_desc = info.get('description', '')
 
-        # 브랜드 표시 — Linear 감성: 작은 이니셜 아이콘 + 이름 (로고 이미지는 생략)
+        # (브랜드 이니셜 박스 제거 — 클라이언트 selectbox에서 이미 이름 표시됨)
         display_name = company_name or "LMS Analytics"
-        _initial = display_name.strip()[:1] if display_name else "B"
-        st.markdown(
-            f'<div class="sidebar-brand">'
-            f'  <div class="brand-icon">{esc_html(_initial)}</div>'
-            f'  <div class="name">{esc_html(display_name)}</div>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
 
         # ── 데이터 소스 ──
         uploaded = None
@@ -476,18 +463,18 @@ def _render_sidebar() -> tuple:
             stats = get_client_stats(client_id)
             has_stored = stats['rows'] > 0
 
-            # 선택 가능한 모드 목록
+            # 선택 가능한 모드 목록 (Linear 미니멀: 이모지 제거)
             _modes = []
             _fmts = {}
             if _has_fb:
                 _modes.append("firebase")
-                _fmts["firebase"] = f"📊 Firebase 실시간 ({_profile['firebase_advertiser']})"
+                _fmts["firebase"] = f"Firebase 실시간 · {_profile['firebase_advertiser']}"
             if has_stored:
                 _modes.append("stored")
-                _fmts["stored"] = f"📂 저장된 데이터 ({stats['rows']:,}행)"
+                _fmts["stored"] = f"저장된 데이터 · {stats['rows']:,}행"
             # Bug 6: upload는 항상 fallback으로 포함
             _modes.append("upload")
-            _fmts["upload"] = "📤 새 파일 업로드"
+            _fmts["upload"] = "파일 업로드"
 
             if len(_modes) > 1:
                 st.markdown('<div class="sidebar-label">데이터 소스</div>', unsafe_allow_html=True)
@@ -503,19 +490,14 @@ def _render_sidebar() -> tuple:
             if _has_fb_setting and not _fb_available:
                 st.warning("⚠ Firebase 키 파일을 찾을 수 없습니다. 업로드 모드를 사용해 주세요.")
 
-        # Firebase 모드: 새로고침 버튼
+        # Firebase 모드: 새로고침 버튼 (간결 버전)
         if data_mode == "firebase" and _has_fb:
             st.markdown(
-                f'<div style="background:transparent;border:1px solid #E5E7EB;border-radius:8px;'
-                f'padding:10px 12px;margin:6px 0 8px 0;">'
-                f'<div style="font-size:.76rem;font-weight:500;color:#4B5563;">'
-                f'<span style="color:#3182F6;">●</span> Firebase 실시간 연동</div>'
-                f'<div style="font-size:.70rem;color:#9CA3AF;margin-top:3px;">'
-                f'{esc_html(_profile["firebase_advertiser"])} · 5분 자동 갱신</div>'
-                f'</div>',
+                f'<div style="font-size:.70rem;color:#9CA3AF;margin:6px 0 4px 0;'
+                f'letter-spacing:0.02em;">5분마다 자동 갱신</div>',
                 unsafe_allow_html=True,
             )
-            if st.button("🔄 지금 새로고침", key="fb_refresh", use_container_width=True):
+            if st.button("새로고침", key="fb_refresh", use_container_width=True):
                 # Bug 11: 모든 Firebase 캐시 전체 무효화
                 from modules.firebase_connector import (
                     load_from_firestore, list_advertisers, load_advertiser_data,
@@ -544,7 +526,7 @@ def _render_sidebar() -> tuple:
                     merge_opt = st.radio(
                         "데이터 저장 방식",
                         ["merge", "replace"],
-                        format_func=lambda x: "🔄 기존 데이터에 누적" if x == "merge" else "🔁 새 데이터로 교체",
+                        format_func=lambda x: "기존에 누적" if x == "merge" else "새로 교체",
                         key="merge_mode",
                         horizontal=True,
                     )
@@ -571,8 +553,13 @@ def _render_sidebar() -> tuple:
                 )
                 for _it in _cat_items:
                     _is_active = (_it["label"] == _cur)
+                    # 아이콘이 있으면 프리픽스, 없으면 라벨만 (Linear 미니멀)
+                    _btn_label = (
+                        f"{_it['icon']}  {_it['label']}"
+                        if _it.get("icon") else _it["label"]
+                    )
                     if st.button(
-                        f"{_it['icon']}  {_it['label']}",
+                        _btn_label,
                         key=f"nav_btn_{_it['label']}",
                         use_container_width=True,
                         type=("primary" if _is_active else "secondary"),

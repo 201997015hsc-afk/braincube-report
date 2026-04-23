@@ -511,11 +511,20 @@ section[data-testid="stSidebar"] .nav-cat-header {{
     align-items: center;
     gap: 6px;
 }}
+/* 카테고리 헤더용 색 도트 — 이모지 대신 CSS 블록 (깔끔·픽셀 완벽 정렬) */
 section[data-testid="stSidebar"] .nav-cat-dot {{
-    font-size: 0.55rem;
-    line-height: 1;
-    opacity: 0.9;
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 2px;
+    vertical-align: middle;
+    flex-shrink: 0;
 }}
+section[data-testid="stSidebar"] .nav-cat-dot.cat-perf {{ background: #3B82F6; }}  /* 성과 분석 — blue */
+section[data-testid="stSidebar"] .nav-cat-dot.cat-ind {{ background: #F7931D; }}   /* 업종 인사이트 — brand orange */
+section[data-testid="stSidebar"] .nav-cat-dot.cat-act {{ background: #10B981; }}   /* 액션 — green */
+section[data-testid="stSidebar"] .nav-cat-dot.cat-admin {{ background: #6B7280; }} /* 내부 도구 — gray */
 
 /* 네비 버튼 공통 — 모든 Streamlit DOM 변형 커버 */
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div:has(> div > [data-testid="stButton"]) {{
