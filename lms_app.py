@@ -36,44 +36,67 @@ from modules import (
 )
 
 # ──────────────────────────────────────────────
-# 섹션 네비게이션 정의
+# 섹션 네비게이션 정의 (Linear/Notion 스타일 — 플랫 리스트 + 카테고리)
 # ──────────────────────────────────────────────
-# ── 클라이언트용: 외부 보고에 적합한 분석 ──
-_CLIENT_NAV = [
-    ("📊 성과 요약",    [("월간 요약", summary.render), ("KPI 및 인사이트", kpi.render), ("트렌드 분석", trend.render)]),
-    ("📊 업종 인사이트", [
-        ("경쟁사 분석", competitor.render),
-        ("업종 내 경쟁 인텔리전스", industry_intel.render),
-        ("매체 트렌드", media_trend.render),
-        ("문구 성과 분석", copy_analysis.render),
-        ("업종별 최적 발송 타이밍", industry_timing.render),
-    ]),
-    ("💡 전략 제안",    [("전략 제안", business.render), ("매체 히트맵", heatmap.render)]),
-    ("📄 리포트",       [("월간 PDF 리포트", monthly_pdf.render)]),
-]
+# 각 아이템: {"cat": 카테고리, "label": 표시 이름, "icon": 기하학 아이콘,
+#            "render": 렌더 함수, "scope": "client"|"internal"}
 
-# ── 내부용: 운영·분석 전용 도구 ──
-_INTERNAL_NAV = [
-    ("⚡ 이상치 감지",  [("이상치 감지", anomaly.render)]),
-    ("🔮 예측 · 시뮬레이션", [("클릭 예측", prediction.render), ("예산 최적 배분", budget_optimizer.render), ("예산 증액 시뮬레이터", budget_simulator.render)]),
-    ("🗺️ 상세 히트맵",  [("히트맵", heatmap.render)]),
-    ("📄 리포트 · 발송", [("월간 PDF 리포트", monthly_pdf.render), ("이메일 발송", email_report.render)]),
+_NAV_ITEMS = [
+    # ── 성과 분석 ──
+    {"cat": "성과 분석", "label": "월간 요약",      "icon": "◐", "render": summary.render,  "scope": "client"},
+    {"cat": "성과 분석", "label": "KPI 및 인사이트", "icon": "↗", "render": kpi.render,      "scope": "client"},
+    {"cat": "성과 분석", "label": "트렌드 분석",    "icon": "◑", "render": trend.render,    "scope": "client"},
+
+    # ── 업종 인사이트 ──
+    {"cat": "업종 인사이트", "label": "경쟁사 분석",             "icon": "◉", "render": competitor.render,      "scope": "client"},
+    {"cat": "업종 인사이트", "label": "업종 내 경쟁 인텔리전스", "icon": "◎", "render": industry_intel.render,  "scope": "client"},
+    {"cat": "업종 인사이트", "label": "매체 트렌드",             "icon": "◇", "render": media_trend.render,     "scope": "client"},
+    {"cat": "업종 인사이트", "label": "문구 성과 분석",          "icon": "◆", "render": copy_analysis.render,   "scope": "client"},
+    {"cat": "업종 인사이트", "label": "업종별 최적 발송 타이밍", "icon": "◈", "render": industry_timing.render, "scope": "client"},
+
+    # ── 액션 ──
+    {"cat": "액션", "label": "전략 제안",       "icon": "◆", "render": business.render,    "scope": "client"},
+    {"cat": "액션", "label": "매체 히트맵",     "icon": "▨", "render": heatmap.render,     "scope": "client"},
+    {"cat": "액션", "label": "월간 PDF 리포트", "icon": "◇", "render": monthly_pdf.render, "scope": "client"},
+
+    # ── 내부 도구 (관리자 전용) ──
+    {"cat": "내부 도구", "label": "이상치 감지",         "icon": "⚠", "render": anomaly.render,         "scope": "internal"},
+    {"cat": "내부 도구", "label": "클릭 예측",           "icon": "◈", "render": prediction.render,      "scope": "internal"},
+    {"cat": "내부 도구", "label": "예산 최적 배분",       "icon": "◇", "render": budget_optimizer.render, "scope": "internal"},
+    {"cat": "내부 도구", "label": "예산 증액 시뮬레이터", "icon": "◐", "render": budget_simulator.render, "scope": "internal"},
+    {"cat": "내부 도구", "label": "상세 히트맵",         "icon": "▧", "render": heatmap.render,         "scope": "internal"},
+    {"cat": "내부 도구", "label": "이메일 발송",          "icon": "✉", "render": email_report.render,    "scope": "internal"},
 ]
 
 
 def _build_nav(role: str):
-    """역할에 따라 네비게이션 구성 반환"""
+    """역할에 따라 네비게이션 아이템 반환 (flat list)."""
     if role == ROLE_INTERNAL:
-        items = _CLIENT_NAV + _INTERNAL_NAV
-        client_labels = [label for label, _ in _CLIENT_NAV]
-        internal_labels = [label for label, _ in _INTERNAL_NAV]
+        items = list(_NAV_ITEMS)
     else:
-        items = _CLIENT_NAV
-        client_labels = [label for label, _ in _CLIENT_NAV]
-        internal_labels = []
-    labels = [label for label, _ in items]
-    nav_map = dict(items)
-    return items, labels, nav_map, client_labels, internal_labels
+        items = [i for i in _NAV_ITEMS if i["scope"] == "client"]
+    return items
+
+
+def _nav_grouped(items: list[dict]) -> list[tuple[str, list[dict]]]:
+    """카테고리별로 그룹핑 (순서 보존)."""
+    groups: dict[str, list[dict]] = {}
+    order: list[str] = []
+    for it in items:
+        c = it["cat"]
+        if c not in groups:
+            groups[c] = []
+            order.append(c)
+        groups[c].append(it)
+    return [(c, groups[c]) for c in order]
+
+
+def _find_nav_item(items: list[dict], label: str) -> dict | None:
+    """라벨로 네비 아이템 찾기."""
+    for it in items:
+        if it["label"] == label:
+            return it
+    return None
 
 
 # ──────────────────────────────────────────────
@@ -267,7 +290,7 @@ def _render_sidebar() -> tuple:
 
     user = get_user()
     role = get_role()
-    _nav_items, _nav_labels, _nav_map, _client_labels, _internal_labels = _build_nav(role)
+    nav_items = _build_nav(role)
 
     with st.sidebar:
         # ── 사용자 정보 + 로그아웃 ──
@@ -514,36 +537,34 @@ def _render_sidebar() -> tuple:
                     )
                     st.session_state['_merge_mode'] = merge_opt
 
-        # ── 섹션 네비게이션 (역할 기반) ──
+        # ── 섹션 네비게이션 (Linear/Notion 스타일 — 카테고리별 플랫 네비) ──
         has_data = uploaded or (data_mode == "stored" and client_id) or (data_mode == "firebase" and _has_fb)
-        nav_choice = _nav_labels[0] if _nav_labels else "📊 성과 요약"
+        nav_choice = nav_items[0]["label"] if nav_items else ""
         if has_data:
-            if role == ROLE_INTERNAL:
-                st.markdown(
-                    '<div class="sidebar-label" style="margin-bottom:2px">📋 클라이언트용</div>'
-                    '<div style="font-size:.68rem;color:#8B95A1;margin-bottom:8px">외부 보고 · 클라이언트 공유</div>',
-                    unsafe_allow_html=True,
-                )
-                _captions = (
-                    [""] * len(_client_labels)
-                    + ["🔧 내부 운영 도구"]
-                    + [""] * (len(_internal_labels) - 1)
-                )
-            else:
-                st.markdown(
-                    '<div class="sidebar-label" style="margin-bottom:2px">📋 분석 메뉴</div>'
-                    '<div style="font-size:.68rem;color:#8B95A1;margin-bottom:8px">성과 분석 · 벤치마크 · 전략 제안</div>',
-                    unsafe_allow_html=True,
-                )
-                _captions = [""] * len(_nav_labels)
+            _labels = [it["label"] for it in nav_items]
+            # 초기값 · 유효성 검증
+            _cur = st.session_state.get("_nav_active")
+            if _cur not in _labels:
+                _cur = nav_items[0]["label"] if nav_items else ""
+                st.session_state["_nav_active"] = _cur
 
-            nav_choice = st.radio(
-                "메뉴 선택",
-                _nav_labels,
-                label_visibility="collapsed",
-                key="nav_section",
-                captions=_captions,
-            )
+            # 카테고리별로 버튼 렌더
+            for _cat, _cat_items in _nav_grouped(nav_items):
+                st.markdown(
+                    f'<div class="nav-cat-header">{_cat}</div>',
+                    unsafe_allow_html=True,
+                )
+                for _it in _cat_items:
+                    _is_active = (_it["label"] == _cur)
+                    if st.button(
+                        f"{_it['icon']}  {_it['label']}",
+                        key=f"nav_btn_{_it['label']}",
+                        use_container_width=True,
+                        type=("primary" if _is_active else "secondary"),
+                    ):
+                        st.session_state["_nav_active"] = _it["label"]
+                        st.rerun()
+            nav_choice = st.session_state["_nav_active"]
 
         # ── 날짜 필터 ──
         date_range = None
@@ -583,7 +604,7 @@ def _render_sidebar() -> tuple:
         except Exception:
             pass
 
-    return uploaded, sheet_name, company_name, date_range, nav_choice, client_id, _nav_map
+    return uploaded, sheet_name, company_name, date_range, nav_choice, client_id, nav_items
 
 
 def _render_download_buttons(df: pd.DataFrame, company_name: str, client_id: str | None = None):
@@ -860,7 +881,7 @@ def main():
             icon="⚠️",
         )
 
-    uploaded, sheet_name, company_name, date_range, nav_choice, client_id, nav_map = _render_sidebar()
+    uploaded, sheet_name, company_name, date_range, nav_choice, client_id, nav_items = _render_sidebar()
 
     # ── 권한 차단: 클라이언트 역할이 권한 없는 광고주에 접근 시 강제 차단 ──
     from modules.auth import can_access_client
@@ -1038,10 +1059,10 @@ def main():
             "<br>".join(f"• {w}" for w in warnings),
         ), unsafe_allow_html=True)
 
-    # ── 선택된 섹션만 렌더링 ──
-    if nav_choice in nav_map:
-        for name, fn in nav_map[nav_choice]:
-            _run_section(name, fn, df)
+    # ── 선택된 섹션만 렌더링 (Linear 스타일: 단일 페이지) ──
+    _active = _find_nav_item(nav_items, nav_choice)
+    if _active is not None:
+        _run_section(_active["label"], _active["render"], df)
 
 
 if __name__ == "__main__":

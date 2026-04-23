@@ -262,12 +262,12 @@ section[data-testid="stSidebar"] .stMarkdown p {{
     padding-left: 2px;
 }}
 
-/* ===== Sidebar Navigation ===== */
+/* ===== Sidebar Navigation (legacy Radio — 기타 필터에 사용) ===== */
 section[data-testid="stSidebar"] .stRadio > div {{
     gap: 1px !important;
 }}
 section[data-testid="stSidebar"] .stRadio label {{
-    border-radius: 10px !important;
+    border-radius: 8px !important;
     padding: 7px 12px !important;
     font-size: 0.88rem !important;
     transition: background 0.15s ease !important;
@@ -277,7 +277,64 @@ section[data-testid="stSidebar"] .stRadio label:hover {{
 }}
 section[data-testid="stSidebar"] .stRadio label[data-baseweb="radio"]:has(input:checked) {{
     background: rgba(247, 147, 29, 0.10) !important;
-    font-weight: 700 !important;
+    font-weight: 600 !important;
+}}
+
+/* ===== Sidebar Navigation — Linear/Notion 스타일 (버튼 기반) ===== */
+/* 카테고리 헤더 */
+section[data-testid="stSidebar"] .nav-cat-header {{
+    font-size: 0.72rem;
+    color: #9CA3AF;
+    font-weight: 500;
+    padding: 14px 10px 4px 10px;
+    letter-spacing: 0.02em;
+}}
+
+/* 네비 버튼 공통 */
+section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div:has(> div > [data-testid="stButton"]) {{
+    margin-bottom: 1px !important;
+}}
+section[data-testid="stSidebar"] .stButton > button {{
+    background: transparent !important;
+    border: none !important;
+    color: #4B5563 !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    padding: 6px 10px !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+    font-size: 0.88rem !important;
+    box-shadow: none !important;
+    transition: background 0.12s ease, color 0.12s ease !important;
+    min-height: 34px !important;
+    height: 34px !important;
+    line-height: 1.3 !important;
+}}
+section[data-testid="stSidebar"] .stButton > button:hover {{
+    background: #EEF0F3 !important;
+    color: #111827 !important;
+    border: none !important;
+    transform: none !important;
+}}
+/* 활성 상태 — Streamlit primary 버튼 */
+section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+    background: #E5E7EB !important;
+    color: #111827 !important;
+    font-weight: 600 !important;
+    border: none !important;
+}}
+section[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {{
+    background: #D1D5DB !important;
+}}
+section[data-testid="stSidebar"] .stButton > button[kind="primary"]:focus {{
+    background: #E5E7EB !important;
+    box-shadow: none !important;
+    outline: none !important;
+}}
+/* 버튼 내부 텍스트 — 아이콘 정렬 */
+section[data-testid="stSidebar"] .stButton > button p {{
+    margin: 0 !important;
+    font-size: 0.88rem !important;
 }}
 
 /* ===== Metric Cards (st.metric) ===== */
