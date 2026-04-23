@@ -323,6 +323,14 @@ section[data-testid="stSidebar"] .nav-cat-header {{
     font-weight: 500;
     padding: 14px 10px 4px 10px;
     letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}}
+section[data-testid="stSidebar"] .nav-cat-dot {{
+    font-size: 0.55rem;
+    line-height: 1;
+    opacity: 0.9;
 }}
 
 /* 네비 버튼 공통 */

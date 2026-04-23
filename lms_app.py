@@ -41,31 +41,44 @@ from modules import (
 # 각 아이템: {"cat": 카테고리, "label": 표시 이름, "icon": 기하학 아이콘,
 #            "render": 렌더 함수, "scope": "client"|"internal"}
 
+# 카테고리별 컬러 점 (Option 3 스타일 — 카테고리 그룹화 시각화)
+_NAV_CAT_DOT = {
+    "성과 분석":       "🔵",
+    "업종 인사이트":   "🟠",
+    "액션":           "🟢",
+    "내부 도구":       "⚫",
+}
+
+
+def _dot(cat: str) -> str:
+    return _NAV_CAT_DOT.get(cat, "⚪")
+
+
 _NAV_ITEMS = [
-    # ── 성과 분석 ──
-    {"cat": "성과 분석", "label": "월간 요약",      "icon": "◐", "render": summary.render,  "scope": "client"},
-    {"cat": "성과 분석", "label": "KPI 및 인사이트", "icon": "↗", "render": kpi.render,      "scope": "client"},
-    {"cat": "성과 분석", "label": "트렌드 분석",    "icon": "◑", "render": trend.render,    "scope": "client"},
+    # ── 성과 분석 (파랑) ──
+    {"cat": "성과 분석", "label": "월간 요약",      "icon": _NAV_CAT_DOT["성과 분석"], "render": summary.render, "scope": "client"},
+    {"cat": "성과 분석", "label": "KPI 및 인사이트", "icon": _NAV_CAT_DOT["성과 분석"], "render": kpi.render,     "scope": "client"},
+    {"cat": "성과 분석", "label": "트렌드 분석",    "icon": _NAV_CAT_DOT["성과 분석"], "render": trend.render,   "scope": "client"},
 
-    # ── 업종 인사이트 ──
-    {"cat": "업종 인사이트", "label": "경쟁사 분석",             "icon": "◉", "render": competitor.render,      "scope": "client"},
-    {"cat": "업종 인사이트", "label": "업종 내 경쟁 인텔리전스", "icon": "◎", "render": industry_intel.render,  "scope": "client"},
-    {"cat": "업종 인사이트", "label": "매체 트렌드",             "icon": "◇", "render": media_trend.render,     "scope": "client"},
-    {"cat": "업종 인사이트", "label": "문구 성과 분석",          "icon": "◆", "render": copy_analysis.render,   "scope": "client"},
-    {"cat": "업종 인사이트", "label": "업종별 최적 발송 타이밍", "icon": "◈", "render": industry_timing.render, "scope": "client"},
+    # ── 업종 인사이트 (오렌지) ──
+    {"cat": "업종 인사이트", "label": "경쟁사 분석",             "icon": _NAV_CAT_DOT["업종 인사이트"], "render": competitor.render,      "scope": "client"},
+    {"cat": "업종 인사이트", "label": "업종 내 경쟁 인텔리전스", "icon": _NAV_CAT_DOT["업종 인사이트"], "render": industry_intel.render,  "scope": "client"},
+    {"cat": "업종 인사이트", "label": "매체 트렌드",             "icon": _NAV_CAT_DOT["업종 인사이트"], "render": media_trend.render,     "scope": "client"},
+    {"cat": "업종 인사이트", "label": "문구 성과 분석",          "icon": _NAV_CAT_DOT["업종 인사이트"], "render": copy_analysis.render,   "scope": "client"},
+    {"cat": "업종 인사이트", "label": "업종별 최적 발송 타이밍", "icon": _NAV_CAT_DOT["업종 인사이트"], "render": industry_timing.render, "scope": "client"},
 
-    # ── 액션 ──
-    {"cat": "액션", "label": "전략 제안",       "icon": "◆", "render": business.render,    "scope": "client"},
-    {"cat": "액션", "label": "매체 히트맵",     "icon": "▨", "render": heatmap.render,     "scope": "client"},
-    {"cat": "액션", "label": "월간 PDF 리포트", "icon": "◇", "render": monthly_pdf.render, "scope": "client"},
+    # ── 액션 (초록) ──
+    {"cat": "액션", "label": "전략 제안",       "icon": _NAV_CAT_DOT["액션"], "render": business.render,    "scope": "client"},
+    {"cat": "액션", "label": "매체 히트맵",     "icon": _NAV_CAT_DOT["액션"], "render": heatmap.render,     "scope": "client"},
+    {"cat": "액션", "label": "월간 PDF 리포트", "icon": _NAV_CAT_DOT["액션"], "render": monthly_pdf.render, "scope": "client"},
 
-    # ── 내부 도구 (관리자 전용) ──
-    {"cat": "내부 도구", "label": "이상치 감지",         "icon": "⚠", "render": anomaly.render,         "scope": "internal"},
-    {"cat": "내부 도구", "label": "클릭 예측",           "icon": "◈", "render": prediction.render,      "scope": "internal"},
-    {"cat": "내부 도구", "label": "예산 최적 배분",       "icon": "◇", "render": budget_optimizer.render, "scope": "internal"},
-    {"cat": "내부 도구", "label": "예산 증액 시뮬레이터", "icon": "◐", "render": budget_simulator.render, "scope": "internal"},
-    {"cat": "내부 도구", "label": "상세 히트맵",         "icon": "▧", "render": heatmap.render,         "scope": "internal"},
-    {"cat": "내부 도구", "label": "이메일 발송",          "icon": "✉", "render": email_report.render,    "scope": "internal"},
+    # ── 내부 도구 (어두운 회색) — 관리자 전용 ──
+    {"cat": "내부 도구", "label": "이상치 감지",         "icon": _NAV_CAT_DOT["내부 도구"], "render": anomaly.render,         "scope": "internal"},
+    {"cat": "내부 도구", "label": "클릭 예측",           "icon": _NAV_CAT_DOT["내부 도구"], "render": prediction.render,      "scope": "internal"},
+    {"cat": "내부 도구", "label": "예산 최적 배분",       "icon": _NAV_CAT_DOT["내부 도구"], "render": budget_optimizer.render, "scope": "internal"},
+    {"cat": "내부 도구", "label": "예산 증액 시뮬레이터", "icon": _NAV_CAT_DOT["내부 도구"], "render": budget_simulator.render, "scope": "internal"},
+    {"cat": "내부 도구", "label": "상세 히트맵",         "icon": _NAV_CAT_DOT["내부 도구"], "render": heatmap.render,         "scope": "internal"},
+    {"cat": "내부 도구", "label": "이메일 발송",          "icon": _NAV_CAT_DOT["내부 도구"], "render": email_report.render,    "scope": "internal"},
 ]
 
 
@@ -548,10 +561,12 @@ def _render_sidebar() -> tuple:
                 _cur = nav_items[0]["label"] if nav_items else ""
                 st.session_state["_nav_active"] = _cur
 
-            # 카테고리별로 버튼 렌더
+            # 카테고리별로 버튼 렌더 (헤더에 카테고리 색 점 포함)
             for _cat, _cat_items in _nav_grouped(nav_items):
                 st.markdown(
-                    f'<div class="nav-cat-header">{_cat}</div>',
+                    f'<div class="nav-cat-header">'
+                    f'<span class="nav-cat-dot">{_dot(_cat)}</span> {_cat}'
+                    f'</div>',
                     unsafe_allow_html=True,
                 )
                 for _it in _cat_items:
