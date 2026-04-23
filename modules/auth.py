@@ -449,7 +449,7 @@ def render_account_manager():
                             _save_users(users)
                             st.session_state.pop(_ebtn_key, None)
                             st.session_state['_toast_msg'] = (
-                                f"💾 '{_new_name or uid}' 계정 수정됨", "success"
+                                f"'{_new_name or uid}' 계정 수정됨", "success"
                             )
                             st.rerun()
                 with _c2:
@@ -469,7 +469,7 @@ def render_account_manager():
                         _save_users(users)
                         st.session_state.pop(_dbtn_key, None)
                         st.session_state['_toast_msg'] = (
-                            f"🗑️ '{uid}' 계정 삭제됨", "warning"
+                            f"'{uid}' 계정 삭제됨", "warning"
                         )
                         st.rerun()
                 with _dc2:
@@ -521,7 +521,7 @@ def render_account_manager():
                 }
                 _save_users(users)
                 st.session_state['_toast_msg'] = (
-                    f"✅ '{new_name or new_id}' 계정이 추가됨", "success"
+                    f"'{new_name or new_id}' 계정이 추가됨", "success"
                 )
                 st.rerun()
 

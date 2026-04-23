@@ -191,8 +191,9 @@ def _render_client_manager():
                         firebase_advertiser=new_fb_adv,
                     )
                 # 페이지 리렌더 후에도 뜨도록 토스트 메시지 예약
+                # (이모지 제거 — icon 파라미터로 한 번만 표시)
                 st.session_state['_toast_msg'] = (
-                    f"✅ '{_name}' 등록 완료", "success"
+                    f"'{_name}' 등록 완료", "success"
                 )
                 st.rerun()
             else:
@@ -230,7 +231,7 @@ def _render_client_manager():
                         with st.spinner(f"'{_deleted_name}' 삭제 중..."):
                             delete_client(c['id'])
                         st.session_state['_toast_msg'] = (
-                            f"🗑️ '{_deleted_name}' 삭제됨", "warning"
+                            f"'{_deleted_name}' 삭제됨", "warning"
                         )
                         st.rerun()
 
@@ -273,7 +274,7 @@ def _render_client_manager():
                                 )
                                 st.session_state.pop(f'_editing_{c["id"]}', None)
                                 st.session_state['_toast_msg'] = (
-                                    f"💾 '{new_name}' 수정 저장됨", "success"
+                                    f"'{new_name}' 수정 저장됨", "success"
                                 )
                                 st.rerun()
                         with eb2:
@@ -870,7 +871,8 @@ def main():
     _pending_toast = st.session_state.pop('_toast_msg', None)
     if _pending_toast:
         _msg, _kind = _pending_toast
-        _icon = {'success': '✅', 'warning': '⚠️', 'info': 'ℹ️'}.get(_kind, '')
+        # Linear 감성: 알아보기 쉬운 심플 아이콘 (체크/경고/정보)
+        _icon = {'success': '✓', 'warning': '!', 'info': 'i'}.get(_kind, '')
         st.toast(_msg, icon=_icon)
 
     # ── Firestore 상태 경고 배너 ──

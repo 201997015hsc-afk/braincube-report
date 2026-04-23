@@ -231,6 +231,23 @@ h3 {{
     letter-spacing: -0.01em;
 }}
 
+/* ===== Toast (st.toast) — Linear 감성 ===== */
+[data-testid="stToast"] {{
+    background: {COLOR_CARD} !important;
+    border: 1px solid {COLOR_BORDER} !important;
+    border-radius: 10px !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06) !important;
+    padding: 12px 16px !important;
+    font-size: 0.84rem !important;
+    color: {COLOR_TEXT} !important;
+}}
+[data-testid="stToast"] [data-testid="stMarkdownContainer"] p {{
+    font-size: 0.84rem !important;
+    color: {COLOR_TEXT} !important;
+    font-weight: 500 !important;
+    margin: 0 !important;
+}}
+
 /* ===== Typography Utility Classes (6-level scale) ===== */
 .ts-xs   {{ font-size: {TS_XS} !important; }}
 .ts-sm   {{ font-size: {TS_SM} !important; }}
