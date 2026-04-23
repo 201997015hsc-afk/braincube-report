@@ -40,7 +40,16 @@ def sanitize_input(text, max_len: int = 200) -> str:
 # 브랜드 & 색상
 # ──────────────────────────────────────────────
 BRAND_PRIMARY = "#F7931D"
-CHART_COLORS = ['#F7931D', '#3182F6', '#20C997', '#FF6B6B', '#845EF7', '#FFA726', '#42A5F5', '#66BB6A']
+# Linear/Notion 감성 차트 팔레트 — 차분한 톤, 브랜드 오렌지 선도
+CHART_COLORS = [
+    '#F7931D',  # Brand orange (primary)
+    '#3B82F6',  # Blue 500 (secondary)
+    '#10B981',  # Emerald 500 (success)
+    '#F59E0B',  # Amber 500 (warning)
+    '#8B5CF6',  # Violet 500 (accent)
+    '#EC4899',  # Pink 500 (tertiary accent)
+    '#6B7280',  # Gray 500 (neutral)
+]
 
 COLOR_TEXT = "#111827"
 COLOR_TEXT_SEC = "#6B7280"
@@ -337,6 +346,14 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
 section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
     background: #EEF0F3 !important;
     border-radius: 8px !important;
+}}
+
+/* ═══════════════════════════════════════════════════
+   Columns Gap 일관화 (Linear 프리뷰 감성 — 20px gap)
+   ═══════════════════════════════════════════════════ */
+.stMainBlockContainer div[data-testid="stHorizontalBlock"],
+.block-container div[data-testid="stHorizontalBlock"] {{
+    gap: 16px !important;
 }}
 
 /* ═══════════════════════════════════════════════════
@@ -994,29 +1011,16 @@ hr {{
     color: {COLOR_SUCCESS};
 }}
 
-/* ===== Hero Header ===== */
-.hero-header {{
-    padding: 8px 0 4px 0;
-}}
+/* ===== Hero Header (deprecated in Chunk 1, kept for safety) ===== */
+/* 기존 호출부가 있을 때 대비해 최소 스타일만 유지 */
+.hero-header {{ padding: 8px 0 4px 0; }}
 .hero-header .title {{
-    font-size: 1.75rem;
-    font-weight: 800;
-    color: {COLOR_TEXT};
-    letter-spacing: -0.03em;
-    line-height: 1.3;
-    margin-bottom: 6px;
+    font-size: 1.4rem; font-weight: 600; color: {COLOR_TEXT};
+    letter-spacing: -0.02em; line-height: 1.3; margin-bottom: 4px;
 }}
-.hero-header .title .accent {{
-    background: linear-gradient(90deg, {BRAND_PRIMARY}, #FF6B6B);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}}
+.hero-header .title .accent {{ color: {BRAND_PRIMARY}; }}
 .hero-header .subtitle {{
-    font-size: 0.88rem;
-    color: {COLOR_TEXT_SEC};
-    font-weight: 500;
-    line-height: 1.5;
+    font-size: 0.88rem; color: {COLOR_TEXT_SEC}; font-weight: 400; line-height: 1.5;
 }}
 
 /* ===== Empty State ===== */
