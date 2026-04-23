@@ -231,35 +231,70 @@ section[data-testid="stSidebar"] .stMarkdown p {{
     color: {COLOR_TEXT_TER};
     font-size: 0.88rem;
 }}
+/* ===== Sidebar Brand (Linear 스타일 — 작고 깔끔) ===== */
 .sidebar-brand {{
-    text-align: center;
-    padding: 20px 16px 20px 16px;
-    border-bottom: 1px solid {COLOR_BORDER};
-    margin-bottom: 20px;
+    text-align: left;
+    padding: 12px 10px 14px 10px;
+    border-bottom: 1px solid {COLOR_BORDER_SUBTLE};
+    margin-bottom: 12px;
     background: transparent;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}}
+.sidebar-brand .brand-icon {{
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    background: {BRAND_PRIMARY};
+    display: flex; align-items: center; justify-content: center;
+    color: white;
+    font-weight: 700;
+    font-size: 0.82rem;
+    flex-shrink: 0;
 }}
 .sidebar-brand .name {{
-    font-size: 1.2rem;
-    font-weight: 800;
+    font-size: 0.95rem;
+    font-weight: 600;
     color: {COLOR_TEXT};
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
 }}
 .sidebar-brand .sub {{
-    font-size: 0.72rem;
-    color: {COLOR_TEXT_SEC};
-    margin-top: 4px;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
+    display: none;  /* Linear 감성: 서브타이틀 숨김 */
 }}
+
+/* ===== Sidebar Label (섹션 라벨 — 얇고 낮은 대비) ===== */
 .sidebar-label {{
-    font-size: 0.68rem;
-    font-weight: 700;
+    font-size: 0.72rem;
+    font-weight: 500;
     color: {COLOR_TEXT_SEC};
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 10px;
-    margin-top: 28px;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    margin-bottom: 6px;
+    margin-top: 16px;
     padding-left: 2px;
+}}
+
+/* ===== Sidebar Expander (클라이언트 관리 등) — 플랫 ===== */
+section[data-testid="stSidebar"] [data-testid="stExpander"] {{
+    border: 1px solid {COLOR_BORDER_SUBTLE} !important;
+    border-radius: 8px !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    margin-bottom: 6px !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary {{
+    font-size: 0.82rem !important;
+    font-weight: 500 !important;
+    color: {COLOR_TEXT_TER} !important;
+    padding: 8px 12px !important;
+}}
+section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
+    background: #EEF0F3 !important;
+    border-radius: 8px !important;
 }}
 
 /* ===== Sidebar Navigation (legacy Radio — 기타 필터에 사용) ===== */

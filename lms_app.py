@@ -293,19 +293,21 @@ def _render_sidebar() -> tuple:
     nav_items = _build_nav(role)
 
     with st.sidebar:
-        # ── 사용자 정보 + 로그아웃 ──
-        role_badge = "🔧 내부" if role == ROLE_INTERNAL else "👤 클라이언트"
+        # ── 사용자 정보 + 로그아웃 (Linear 감성: 플랫 · 얇은 보더) ──
+        role_badge = "내부" if role == ROLE_INTERNAL else "클라이언트"
+        _user_name = user["name"] if user else "Guest"
+        _user_id = user["username"] if user else ""
         st.markdown(
-            f'<div style="background:linear-gradient(135deg,rgba(247,147,29,0.08),rgba(49,130,246,0.08));'
-            f'border-radius:12px;padding:12px 16px;margin-bottom:16px;">'
-            f'<div style="font-size:0.88rem;font-weight:700;color:#191F28;">'
-            f'{user["name"] if user else "Guest"}</div>'
-            f'<div style="font-size:0.72rem;color:#8B95A1;margin-top:2px;">'
-            f'{role_badge} · {user["username"] if user else ""}</div>'
+            f'<div style="background:transparent;border:1px solid #E5E7EB;'
+            f'border-radius:8px;padding:10px 12px;margin-bottom:10px;">'
+            f'<div style="font-size:0.86rem;font-weight:600;color:#111827;">'
+            f'{esc_html(_user_name)}</div>'
+            f'<div style="font-size:0.72rem;color:#6B7280;margin-top:2px;">'
+            f'{role_badge} · {esc_html(_user_id)}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
-        if st.button("🚪 로그아웃", key="btn_logout", use_container_width=True):
+        if st.button("로그아웃", key="btn_logout", use_container_width=True):
             logout()
             st.rerun()
 
@@ -430,16 +432,13 @@ def _render_sidebar() -> tuple:
                 auto_logo_url = info.get('logo_url', '')
                 auto_desc = info.get('description', '')
 
-        # 브랜드 표시 (로고는 자동 조회 결과만 사용)
-        if auto_logo_url:
-            st.image(auto_logo_url, width=120)
-
+        # 브랜드 표시 — Linear 감성: 작은 이니셜 아이콘 + 이름 (로고 이미지는 생략)
         display_name = company_name or "LMS Analytics"
-        brand_sub = f'<div class="sub">{auto_desc}</div>' if auto_desc else '<div class="sub">LMS Performance Report</div>'
+        _initial = display_name.strip()[:1] if display_name else "B"
         st.markdown(
             f'<div class="sidebar-brand">'
-            f'<div class="name">{display_name}</div>'
-            f'{brand_sub}'
+            f'  <div class="brand-icon">{esc_html(_initial)}</div>'
+            f'  <div class="name">{esc_html(display_name)}</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -494,11 +493,12 @@ def _render_sidebar() -> tuple:
         # Firebase 모드: 새로고침 버튼
         if data_mode == "firebase" and _has_fb:
             st.markdown(
-                f'<div style="background:rgba(49,130,246,0.08);border-radius:10px;'
-                f'padding:10px 14px;margin:4px 0 8px 0;">'
-                f'<div style="font-size:.78rem;font-weight:600;color:#3182F6;">📊 Firebase 실시간 연동</div>'
-                f'<div style="font-size:.68rem;color:#8B95A1;margin-top:2px;">'
-                f'브랜드: {_profile["firebase_advertiser"]} · 5분 자동 갱신</div>'
+                f'<div style="background:transparent;border:1px solid #E5E7EB;border-radius:8px;'
+                f'padding:10px 12px;margin:6px 0 8px 0;">'
+                f'<div style="font-size:.76rem;font-weight:500;color:#4B5563;">'
+                f'<span style="color:#3182F6;">●</span> Firebase 실시간 연동</div>'
+                f'<div style="font-size:.70rem;color:#9CA3AF;margin-top:3px;">'
+                f'{esc_html(_profile["firebase_advertiser"])} · 5분 자동 갱신</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
