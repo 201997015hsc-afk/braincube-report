@@ -427,12 +427,17 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
 .block-container div[role="radiogroup"] > label[data-baseweb="radio"] {{
     border: 1px solid {COLOR_BORDER} !important;
     border-radius: 100px !important;
-    padding: 4px 12px !important;
+    padding: 5px 14px !important;
     background: {COLOR_CARD} !important;
     transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease !important;
     cursor: pointer !important;
     min-height: auto !important;
     margin: 0 !important;
+    /* 텍스트를 알약 내부 수직·수평 중앙에 정확히 맞춤 */
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    line-height: 1 !important;
 }}
 .stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"]:hover,
 .block-container div[role="radiogroup"] > label[data-baseweb="radio"]:hover {{
@@ -444,7 +449,7 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
 .block-container div[role="radiogroup"] > label[data-baseweb="radio"] > div:first-child {{
     display: none !important;
 }}
-/* chip 텍스트 */
+/* chip 텍스트 — 알약 내부 정확히 수직 정렬 */
 .stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"] p,
 .block-container div[role="radiogroup"] > label[data-baseweb="radio"] p {{
     font-size: 0.80rem !important;
@@ -452,7 +457,16 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
     color: {COLOR_TEXT_TER} !important;
     margin: 0 !important;
     padding: 0 !important;
-    line-height: 1.5 !important;
+    line-height: 1.4 !important;
+    display: flex !important;
+    align-items: center !important;
+}}
+/* label 안의 text wrapper div 도 플렉스 중앙 */
+.stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"] > div:not(:first-child),
+.block-container div[role="radiogroup"] > label[data-baseweb="radio"] > div:not(:first-child) {{
+    display: flex !important;
+    align-items: center !important;
+    line-height: 1 !important;
 }}
 /* 선택된 chip: 차분한 회색 배경 + 진한 텍스트 (Linear/Notion 스타일) */
 .stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked),
