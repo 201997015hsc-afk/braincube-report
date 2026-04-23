@@ -5,7 +5,6 @@ Firebase Firestore(campaigns) 실시간 데이터를 활용하여:
   1) 업종별 벤치마크 비교  — 자사 CTR/CPC vs 업종 중앙값
   2) 매체별 벤치마크       — 채널별 성과를 업종 평균과 오버레이
   3) 광고주 비교 분석      — 업종 내 광고주별 포지셔닝
-  4) 수동 경쟁사 입력 + API — 기존 SEMrush/Ahrefs 연동 유지
 """
 import streamlit as st
 import pandas as pd
@@ -1118,257 +1117,6 @@ def _render_advertiser_comparison(df: pd.DataFrame, bench: pd.DataFrame, selecte
         ), unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════
-# 7. TAB 4 — 수동 경쟁사 + API (기존 기능 유지)
-# ══════════════════════════════════════════════
-
-def _fetch_semrush(api_key: str, domain: str) -> pd.DataFrame | None:
-    """SEMrush API에서 도메인 키워드 데이터 조회"""
-    try:
-        import requests
-        url = "https://api.semrush.com/"
-        params = {
-            "type": "domain_organic",
-            "key": api_key,
-            "domain": domain,
-            "database": "kr",
-            "display_limit": 20,
-            "export_columns": "Ph,Po,Nq,Cp,Tr",
-        }
-        resp = requests.get(url, params=params, timeout=15)
-        if resp.status_code != 200:
-            return None
-        from io import StringIO
-        result = pd.read_csv(StringIO(resp.text), sep=";")
-        result.columns = ['키워드', '순위', '월간검색량', 'CPC($)', '트래픽비중(%)']
-        return result
-    except Exception:
-        return None
-
-
-def _fetch_ahrefs(api_key: str, domain: str) -> pd.DataFrame | None:
-    """Ahrefs API에서 도메인 오가닉 키워드 조회"""
-    try:
-        import requests
-        url = "https://apiv2.ahrefs.com"
-        params = {
-            "token": api_key,
-            "from": "organic_keywords",
-            "target": domain,
-            "mode": "domain",
-            "country": "kr",
-            "limit": 20,
-            "output": "json",
-        }
-        resp = requests.get(url, params=params, timeout=15)
-        if resp.status_code != 200:
-            return None
-        data = resp.json().get("keywords", [])
-        if not data:
-            return None
-        result = pd.DataFrame(data)
-        result = result.rename(columns={
-            "keyword": "키워드", "position": "순위",
-            "volume": "월간검색량", "cpc": "CPC($)", "traffic": "트래픽비중(%)",
-        })
-        return result[['키워드', '순위', '월간검색량', 'CPC($)', '트래픽비중(%)']]
-    except Exception:
-        return None
-
-
-def _render_manual_section(df: pd.DataFrame):
-    """수동 경쟁사 입력 + LMS 교차 분석 + API 연동"""
-    my_name = st.session_state.get("company", "자사")
-
-    # 수동 입력 UI
-    st.markdown("**경쟁사 정보 입력**")
-    n_comp = st.slider("경쟁사 수", min_value=1, max_value=10, value=3, key="comp_n_manual")
-    competitors = []
-    cols = st.columns(min(n_comp, 5))
-    for i in range(n_comp):
-        col_idx = i % len(cols)
-        with cols[col_idx]:
-            name = st.text_input(f"경쟁사 {i+1}", key=f"comp_name_{i}", placeholder="이름")
-            domain = st.text_input(f"도메인 {i+1}", key=f"comp_domain_{i}", placeholder="example.co.kr")
-            if name:
-                competitors.append({"이름": name, "도메인": domain or ""})
-
-    keywords = st.text_input(
-        "핵심 키워드 입력 (쉼표로 구분)",
-        placeholder="예: LMS, 문자마케팅, 대량문자, SMS마케팅",
-        key="comp_keywords",
-    )
-    kw_list = [k.strip() for k in keywords.split(",") if k.strip()] if keywords else []
-
-    # API 연동
-    with st.sidebar:
-        st.markdown('<div class="sidebar-label">경쟁사 분석 API (선택)</div>', unsafe_allow_html=True)
-        api_provider = st.selectbox("API 선택", ["사용 안 함", "SEMrush", "Ahrefs"], key="comp_api")
-        api_key = ""
-        if api_provider != "사용 안 함":
-            api_key = st.text_input(f"{api_provider} API Key", type="password", key="comp_api_key")
-
-    if api_key and api_provider != "사용 안 함":
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(section_header("API 실시간 데이터"), unsafe_allow_html=True)
-        my_domain = st.text_input("자사 도메인", placeholder="예: braincube.co.kr", key="my_domain")
-        if my_domain:
-            with st.spinner(f"{api_provider}에서 데이터 조회 중..."):
-                fetch_fn = _fetch_semrush if api_provider == "SEMrush" else _fetch_ahrefs
-                my_data = fetch_fn(api_key, my_domain)
-                if my_data is not None and not my_data.empty:
-                    _render_api_results(my_data, my_domain)
-                else:
-                    st.markdown(alert_card_html(
-                        "warning", "데이터 조회 실패",
-                        f"{api_provider} API에서 <b>{my_domain}</b>의 데이터를 가져올 수 없습니다.",
-                    ), unsafe_allow_html=True)
-        for comp in competitors:
-            if comp['도메인']:
-                with st.spinner(f"{comp['도메인']} 조회 중..."):
-                    fetch_fn = _fetch_semrush if api_provider == "SEMrush" else _fetch_ahrefs
-                    comp_data = fetch_fn(api_key, comp['도메인'])
-                    if comp_data is not None and not comp_data.empty:
-                        _render_api_results(comp_data, f"{comp['이름']} ({comp['도메인']})")
-
-    # LMS 교차 분석 카드
-    if competitors or kw_list:
-        st.markdown("<br>", unsafe_allow_html=True)
-        cards = _generate_competitive_analysis(my_name, competitors, kw_list, df)
-        for card in cards:
-            st.markdown(card, unsafe_allow_html=True)
-    elif not api_key:
-        st.markdown(alert_card_html(
-            "info", "경쟁사 분석 시작하기",
-            "위에서 경쟁사 이름과 핵심 키워드를 입력하면 자사 LMS 데이터 기반 경쟁 분석이 시작됩니다.<br>"
-            "SEMrush/Ahrefs API를 연동하면 실시간 키워드 순위 데이터도 확인할 수 있습니다.",
-        ), unsafe_allow_html=True)
-
-
-def _render_api_results(api_data: pd.DataFrame, domain: str):
-    """API 조회 결과를 테이블 + 차트로 표시"""
-    st.markdown(f"<b>{domain}</b> 상위 키워드", unsafe_allow_html=True)
-    top10 = api_data.head(10).sort_values('순위', ascending=True)
-    _xmax_vol = float(top10['월간검색량'].max()) * 1.25 if len(top10) else 1.0
-    fig = go.Figure(data=[go.Bar(
-        y=top10['키워드'], x=top10['월간검색량'],
-        orientation='h',
-        marker_color=CHART_COLORS[1],
-        text=top10['순위'].apply(lambda x: f"{x}위"),
-        textposition='outside',
-        cliponaxis=False,
-    )])
-    layout = {**PLOTLY_LAYOUT}
-    layout.update(
-        height=350,
-        title={**PLOTLY_LAYOUT['title'], 'text': f"{domain} 오가닉 키워드 TOP 10"},
-        xaxis_title="", yaxis_title="",
-        xaxis=dict(range=[0, _xmax_vol]),
-        yaxis=dict(autorange="reversed"),
-        margin=dict(t=48, r=100, b=20, l=20),
-    )
-    fig.update_layout(**layout)
-    st.plotly_chart(fig, width='stretch')
-    st.dataframe(
-        api_data.head(20).style.format({
-            '월간검색량': '{:,.0f}', 'CPC($)': '{:.2f}', '트래픽비중(%)': '{:.1f}',
-        }),
-        width='stretch', hide_index=True,
-    )
-
-
-def _generate_competitive_analysis(
-    my_name: str, competitors: list[dict], keywords: list[str], df: pd.DataFrame,
-) -> list[str]:
-    """LMS 데이터 교차 분석 → 경쟁 인사이트 카드"""
-    from modules.config import CTR_CHANGE_THRESHOLD
-    cards = []
-
-    total_cost = df['집행금액'].sum()
-    total_send = df['발송량'].sum()
-    total_click = df['클릭수'].sum()
-    ctr = calc_ctr_scalar(total_click, total_send)
-    cpc = total_cost / total_click if total_click > 0 else 0
-    months = sorted(df['년월'].unique()) if '년월' in df.columns else []
-    n_months = max(len(months), 1)
-    monthly_budget = total_cost / n_months
-
-    # 매체 랭킹
-    media_stats = df.groupby('매체명').agg({'집행금액': 'sum', '발송량': 'sum', '클릭수': 'sum'}).reset_index()
-    media_stats['CTR'] = calc_ctr(media_stats)
-    media_stats = media_stats.sort_values('CTR', ascending=False)
-    top_media = media_stats.iloc[0] if not media_stats.empty else None
-
-    # 추세
-    ctr_trend = "stable"
-    if len(months) >= 2:
-        cur_m = df[df['년월'] == months[-1]]
-        prv_m = df[df['년월'] == months[-2]]
-        diff = (calc_ctr_scalar(cur_m['클릭수'].sum(), cur_m['발송량'].sum())
-                - calc_ctr_scalar(prv_m['클릭수'].sum(), prv_m['발송량'].sum()))
-        if diff > CTR_CHANGE_THRESHOLD:
-            ctr_trend = "improving"
-        elif diff < -CTR_CHANGE_THRESHOLD:
-            ctr_trend = "declining"
-
-    # 요일
-    day_stats = aggregate_by_weekday(df) if '짧은_요일' in df.columns else pd.DataFrame()
-    valid_d = day_stats[day_stats['CTR'] > 0] if not day_stats.empty else pd.DataFrame()
-    best_day = valid_d.loc[valid_d['CTR'].idxmax()] if not valid_d.empty else None
-
-    comp_names = ', '.join(c['이름'] for c in competitors) if competitors else "경쟁사"
-    trend_msg = {"improving": "상승세", "declining": "하락세", "stable": "안정적"}
-
-    # 자사 현황
-    cards.append(alert_card_html(
-        "info",
-        f"{my_name} 현재 경쟁력 진단",
-        f"총 <b>{len(media_stats)}개 매체</b>에서 월 평균 <b>{monthly_budget:,.0f}원</b> 집행 중<br>"
-        f"평균 CTR <b>{ctr:.2f}%</b> · CPC <b>{cpc:,.0f}원</b> · 추세: <b>{trend_msg[ctr_trend]}</b>",
-    ))
-
-    # 키워드별 전략
-    if keywords:
-        top_m_name = top_media['매체명'] if top_media is not None else "주력 매체"
-        top_m_ctr = top_media['CTR'] if top_media is not None else 0
-        for kw in keywords[:5]:
-            budget_kw = monthly_budget / max(len(keywords), 1)
-            exp_clicks = budget_kw / cpc if cpc > 0 else 0
-            day_str = f"<br>• 최적 발송일: <b>{best_day['짧은_요일']}요일</b> (CTR {best_day['CTR']:.2f}%)" if best_day is not None else ""
-            cards.append(alert_card_html(
-                "warning",
-                f"키워드 전략 · \"{kw}\"",
-                f"<b>{comp_names}</b> 대비 '<b>{kw}</b>' 점유율 확보 전략:<br>"
-                f"• 예산 배분: 월 <b>{budget_kw:,.0f}원</b> → 약 <b>{exp_clicks:,.0f}건</b> 유입 예상<br>"
-                f"• 추천 매체: <b>{top_m_name}</b> (CTR {top_m_ctr:.2f}%){day_str}",
-            ))
-
-    # 경쟁사별 대응
-    if competitors:
-        for comp in competitors:
-            if ctr_trend == "improving":
-                strategy = (
-                    f"자사 CTR 상승세 → <b>{comp['이름']}</b> 고객에게 성과 데이터 기반 영업 유효<br>"
-                    f"• 평균 CTR <b>{ctr:.2f}%</b> · 월 <b>{total_click / n_months:,.0f}건</b> 실 클릭수 어필"
-                )
-            elif ctr_trend == "declining":
-                strategy = (
-                    f"CTR 하락세 반전 후 <b>{comp['이름']}</b>와 경쟁 권장<br>"
-                    f"• CPC <b>{cpc:,.0f}원</b> — 크리에이티브 개선 우선"
-                    + (f"<br>• {best_day['짧은_요일']}요일 집중 발송으로 효율 극대화" if best_day is not None else "")
-                )
-            else:
-                inc = monthly_budget * 0.2
-                extra = inc / cpc if cpc > 0 else 0
-                strategy = (
-                    f"안정적 성과 → <b>{comp['이름']}</b> 대비 볼륨 확대로 차별화<br>"
-                    f"• 예산 20% 증액(<b>+{inc:,.0f}원</b>) 시 <b>+{extra:,.0f}건</b> 추가 유입<br>"
-                    f"• 경쟁사 약점 요일/시간대에 발송 집중"
-                )
-            cards.append(alert_card_html("danger", f"경쟁 대응 · {comp['이름']}", strategy))
-
-    return cards
-
 
 # ══════════════════════════════════════════════
 # 8. 메인 렌더
@@ -1380,7 +1128,7 @@ def render(df: pd.DataFrame):
 
     st.markdown(section_header(
         "경쟁사 · 업종 벤치마크 분석",
-        "Firebase 실시간 데이터 기반 업종/매체/광고주 벤치마크와 수동 경쟁사 분석을 제공합니다.",
+        "Firebase 실시간 데이터 기반 업종/매체/광고주 벤치마크 비교를 제공합니다.",
     ), unsafe_allow_html=True)
 
     from modules.data_processing import render_ref_period_selector
@@ -1440,7 +1188,6 @@ def render(df: pd.DataFrame):
         bench = _filter_product(bench_raw, selected_product)
         if bench.empty:
             st.warning(f"'{selected_product}' 상품에 해당하는 벤치마크 데이터가 없습니다.")
-            _render_manual_section(ref_df)
             st.divider()
             return
 
@@ -1454,23 +1201,26 @@ def render(df: pd.DataFrame):
                 unsafe_allow_html=True,
             )
 
-        tab1, tab2, tab3 = st.tabs([
-            "📊 업종 벤치마크", "🏆 광고주 비교", "🔍 수동 경쟁사 · API"
+        tab1, tab2 = st.tabs([
+            "📊 업종 벤치마크", "🏆 광고주 비교"
         ])
 
         with tab1:
             _render_industry_benchmark(ref_df, bench, selected_industry)
         with tab2:
             _render_advertiser_comparison(ref_df, bench, selected_industry)
-        with tab3:
-            _render_manual_section(ref_df)
     else:
-        # 데이터 없음 → 기존 수동 모드만
-        st.markdown(alert_card_html(
-            "info", "Firebase 연동 필요",
-            "Firebase Firestore가 연결되면 업종/매체/광고주 벤치마크 비교가 활성화됩니다.<br>"
-            "현재는 수동 경쟁사 분석 모드로 동작합니다.",
-        ), unsafe_allow_html=True)
-        _render_manual_section(ref_df)
+        # Firebase 미연동 상태 — Linear 스타일 empty state
+        from modules.ui_helpers import render_empty_state
+        render_empty_state(
+            "Firebase 연동 필요",
+            "경쟁사·업종 벤치마크 분석은 Firebase Firestore의 실시간 데이터를 기반으로 동작합니다. "
+            "관리자에게 Firebase 연동을 요청하거나, 이미 연동됐다면 할당량 상태를 확인해 주세요.",
+            icon="🔥",
+            actions=[
+                ("관리자 문의", "Firebase 키·권한·할당량 확인"),
+                ("다른 분석 이용", "사이드바에서 업로드 파일 기반 분석 선택"),
+            ],
+        )
 
     st.divider()
