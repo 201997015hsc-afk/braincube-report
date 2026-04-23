@@ -340,6 +340,60 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
 }}
 
 /* ═══════════════════════════════════════════════════
+   Unified Table Style (HTML table + st.dataframe)
+   Linear/Notion 프리뷰의 table 감성 — 얇은 보더, 작은 폰트, 헤더 구분
+   ═══════════════════════════════════════════════════ */
+/* 메인 콘텐츠의 모든 <table> 공통 */
+.stMainBlockContainer table,
+.block-container table {{
+    border-collapse: collapse !important;
+    width: 100% !important;
+    font-size: 0.82rem !important;
+    font-family: inherit !important;
+    background: transparent !important;
+}}
+.stMainBlockContainer table thead,
+.block-container table thead {{
+    background: {COLOR_BG} !important;
+    border-bottom: 1px solid {COLOR_BORDER} !important;
+}}
+.stMainBlockContainer table thead th,
+.block-container table thead th {{
+    padding: 8px 12px !important;
+    text-align: left !important;
+    font-size: 0.72rem !important;
+    font-weight: 500 !important;
+    color: {COLOR_TEXT_SEC} !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    border: none !important;
+}}
+.stMainBlockContainer table tbody td,
+.block-container table tbody td {{
+    padding: 9px 12px !important;
+    border-bottom: 1px solid {COLOR_BORDER_SUBTLE} !important;
+    color: {COLOR_TEXT} !important;
+    background: transparent !important;
+    font-variant-numeric: tabular-nums;
+}}
+.stMainBlockContainer table tbody tr:last-child td,
+.block-container table tbody tr:last-child td {{
+    border-bottom: none !important;
+}}
+.stMainBlockContainer table tbody tr:hover td,
+.block-container table tbody tr:hover td {{
+    background: {COLOR_BG} !important;
+}}
+
+/* st.dataframe 테마 통합 */
+.stMainBlockContainer [data-testid="stDataFrame"],
+.block-container [data-testid="stDataFrame"] {{
+    border: 1px solid {COLOR_BORDER} !important;
+    border-radius: 10px !important;
+    overflow: hidden !important;
+}}
+
+/* ═══════════════════════════════════════════════════
    Chip-style Filter (메인 콘텐츠 horizontal radio 전용)
    Linear/Notion 프리뷰의 filter-chip-bar 느낌 재현
    - 사이드바 라디오는 위 섹션에서 이미 scoped. 여기 규칙은 main 콘텐츠 radio만.
