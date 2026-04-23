@@ -505,21 +505,22 @@ section[data-testid="stSidebar"] .nav-cat-header {{
     font-size: 0.72rem;
     color: #9CA3AF;
     font-weight: 500;
-    padding: 14px 10px 4px 10px;
+    padding: 12px 10px 6px 10px;
     letter-spacing: 0.02em;
     display: flex;
     align-items: center;
     gap: 6px;
+    line-height: 1.2;
 }}
 /* 카테고리 헤더용 색 도트 — 이모지 대신 CSS 블록 (깔끔·픽셀 완벽 정렬) */
 section[data-testid="stSidebar"] .nav-cat-dot {{
     display: inline-block;
-    width: 7px;
-    height: 7px;
+    width: 6px;
+    height: 6px;
     border-radius: 50%;
-    margin-right: 2px;
-    vertical-align: middle;
     flex-shrink: 0;
+    /* 한글 polytonic baseline 보정 — 텍스트 중앙에 정확히 맞춤 */
+    transform: translateY(-1px);
 }}
 section[data-testid="stSidebar"] .nav-cat-dot.cat-perf {{ background: #3B82F6; }}  /* 성과 분석 — blue */
 section[data-testid="stSidebar"] .nav-cat-dot.cat-ind {{ background: #F7931D; }}   /* 업종 인사이트 — brand orange */
