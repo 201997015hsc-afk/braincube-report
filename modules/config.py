@@ -339,6 +339,77 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
     border-radius: 8px !important;
 }}
 
+/* ═══════════════════════════════════════════════════
+   Chip-style Filter (메인 콘텐츠 horizontal radio 전용)
+   Linear/Notion 프리뷰의 filter-chip-bar 느낌 재현
+   - 사이드바 라디오는 위 섹션에서 이미 scoped. 여기 규칙은 main 콘텐츠 radio만.
+   - `.stRadio:not([data-testid*="stSidebar"])` 형태로 안전하게 배제
+   ═══════════════════════════════════════════════════ */
+/* 라디오 그룹 컨테이너에 flex-wrap 간격만 조정 (사이드바는 section[data-testid="stSidebar"]로 스코프되어 이미 별도 스타일 적용됨) */
+.stMainBlockContainer div[role="radiogroup"],
+.block-container div[role="radiogroup"] {{
+    gap: 6px !important;
+    flex-wrap: wrap !important;
+}}
+/* 각 옵션 라벨을 알약(chip) 형태로 */
+.stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"],
+.block-container div[role="radiogroup"] > label[data-baseweb="radio"] {{
+    border: 1px solid {COLOR_BORDER} !important;
+    border-radius: 100px !important;
+    padding: 4px 12px !important;
+    background: {COLOR_CARD} !important;
+    transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease !important;
+    cursor: pointer !important;
+    min-height: auto !important;
+    margin: 0 !important;
+}}
+.stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"]:hover,
+.block-container div[role="radiogroup"] > label[data-baseweb="radio"]:hover {{
+    border-color: #D1D5DB !important;
+    background: {COLOR_BG} !important;
+}}
+/* 라디오 동그라미 숨김 */
+.stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"] > div:first-child,
+.block-container div[role="radiogroup"] > label[data-baseweb="radio"] > div:first-child {{
+    display: none !important;
+}}
+/* chip 텍스트 */
+.stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"] p,
+.block-container div[role="radiogroup"] > label[data-baseweb="radio"] p {{
+    font-size: 0.80rem !important;
+    font-weight: 500 !important;
+    color: {COLOR_TEXT_TER} !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    line-height: 1.5 !important;
+}}
+/* 선택된 chip: 오렌지 틴트 배경 + 오렌지 보더/글씨 */
+.stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked),
+.block-container div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) {{
+    border-color: {BRAND_PRIMARY} !important;
+    background: rgba(247, 147, 29, 0.10) !important;
+}}
+.stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) p,
+.block-container div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) p {{
+    color: {BRAND_PRIMARY} !important;
+    font-weight: 600 !important;
+}}
+/* 사이드바 라디오에는 chip 스타일 적용 안 됨 (사이드바 rule이 이미 존재하고 더 구체적) — 확실히 분리하기 위해 사이드바 내부 오버라이드 */
+section[data-testid="stSidebar"] div[role="radiogroup"] > label[data-baseweb="radio"] {{
+    border-radius: 8px !important;
+    border: none !important;
+    background: transparent !important;
+    padding: 7px 12px !important;
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label[data-baseweb="radio"] > div:first-child {{
+    display: block !important;
+}}
+section[data-testid="stSidebar"] div[role="radiogroup"] > label[data-baseweb="radio"] p {{
+    font-size: 0.88rem !important;
+    color: inherit !important;
+    font-weight: 500 !important;
+}}
+
 /* ===== Sidebar Navigation (legacy Radio — 기타 필터에 사용) ===== */
 section[data-testid="stSidebar"] .stRadio > div {{
     gap: 1px !important;
