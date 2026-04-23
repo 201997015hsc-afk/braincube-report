@@ -385,6 +385,7 @@ section[data-testid="stSidebar"] .stButton > button {{
     color: #4B5563 !important;
     text-align: left !important;
     justify-content: flex-start !important;
+    align-items: center !important;
     padding: 6px 10px !important;
     border-radius: 6px !important;
     font-weight: 500 !important;
@@ -394,6 +395,16 @@ section[data-testid="stSidebar"] .stButton > button {{
     min-height: 34px !important;
     height: 34px !important;
     line-height: 1.3 !important;
+    display: flex !important;
+    width: 100% !important;
+}}
+/* 내부 마크다운 컨테이너도 좌측 정렬 강제 */
+section[data-testid="stSidebar"] .stButton > button [data-testid="stMarkdownContainer"] {{
+    text-align: left !important;
+    width: 100% !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
 }}
 section[data-testid="stSidebar"] .stButton > button:hover {{
     background: #EEF0F3 !important;
@@ -420,6 +431,8 @@ section[data-testid="stSidebar"] .stButton > button[kind="primary"]:focus {{
 section[data-testid="stSidebar"] .stButton > button p {{
     margin: 0 !important;
     font-size: 0.88rem !important;
+    text-align: left !important;
+    width: 100% !important;
 }}
 
 /* ===== Metric Cards (st.metric) ===== */
