@@ -215,15 +215,21 @@ def render(df: pd.DataFrame):
             render_insights(_insights, cols=1)
         else:
             # 유의미한 변화가 감지되지 않은 경우 — 간단한 현황 요약으로 빈칸 방지
-            _n_up = int((merged['CTR변화'] > 0).sum()) if '클릭수_당월' in merged.columns and not merged.empty else 0
-            if 'CTR변화' not in merged.columns and not merged.empty:
-                merged['CTR변화'] = merged['CTR_당월'] - merged['CTR_전월']
-                _n_up = int((merged['CTR변화'] > 0).sum())
             _n_tot = len(merged) if not merged.empty else 0
+            _n_up = 0
             _top_media = ""
-            if not merged.empty and '클릭수_당월' in merged.columns:
-                _top = merged.nlargest(1, '클릭수_당월').iloc[0]
-                _top_media = str(_top.get('매체명', ''))
+            if not merged.empty:
+                # CTR변화 컬럼이 없으면 안전하게 계산
+                if 'CTR변화' not in merged.columns \
+                        and 'CTR_당월' in merged.columns \
+                        and 'CTR_전월' in merged.columns:
+                    merged['CTR변화'] = merged['CTR_당월'] - merged['CTR_전월']
+                if 'CTR변화' in merged.columns:
+                    _n_up = int((merged['CTR변화'] > 0).sum())
+                if '클릭수_당월' in merged.columns:
+                    _top_rows = merged.nlargest(1, '클릭수_당월')
+                    if not _top_rows.empty:
+                        _top_media = str(_top_rows.iloc[0].get('매체명', ''))
 
             st.markdown(
                 f'<div style="border:1px solid {COLOR_BORDER};border-radius:8px;'
