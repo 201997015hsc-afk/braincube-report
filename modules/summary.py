@@ -206,11 +206,14 @@ def render(df: pd.DataFrame):
             f'자동 감지된 변화 포인트</div>',
             unsafe_allow_html=True,
         )
-        # 기존 detect_summary + render_insights 로직 그대로 활용
-        render_insights(detect_summary(
-            cur_cost, prev_cost, cur_send, prev_send,
-            cur_click, prev_click, cur_ctr, prev_ctr, merged,
-        ))
+        # 좁은 컬럼 안에서는 1열(수직 스택)로 — Streamlit nested columns 제약 회피
+        render_insights(
+            detect_summary(
+                cur_cost, prev_cost, cur_send, prev_send,
+                cur_click, prev_click, cur_ctr, prev_ctr, merged,
+            ),
+            cols=1,
+        )
 
     st.markdown('<div class="space-lg"></div>', unsafe_allow_html=True)
 

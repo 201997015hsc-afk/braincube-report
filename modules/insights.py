@@ -44,16 +44,27 @@ def _chip(ins: dict) -> str:
     return f'<div class="insight-chip" style="background:{t["bg"]};border-left:3px solid {t["border"]}">{det}<div class="ic-fact">{icon} {fact}</div>{act}</div>'
 
 
-def render_insights(insights: list[dict], max_show: int = 4):
-    """인사이트 칩을 2열 그리드로 렌더링"""
+def render_insights(insights: list[dict], max_show: int = 4, cols: int = 2):
+    """인사이트 칩 렌더링.
+
+    Args:
+        insights: detect_*() 결과 dict 리스트
+        max_show: 최대 표시 개수
+        cols: 열 수 (2=기본 2열 그리드, 1=세로 스택 — 좁은 컨테이너/중첩 컬럼 안에서 사용)
+    """
     if not insights:
         return
     show = insights[:max_show]
-    for i in range(0, len(show), 2):
-        row = show[i:i + 2]
-        cols = st.columns(2)
+    if cols <= 1:
+        # 세로 스택 — st.columns를 중첩해 빈 공간이 되는 문제 회피
+        for ins in show:
+            st.markdown(_chip(ins), unsafe_allow_html=True)
+        return
+    for i in range(0, len(show), cols):
+        row = show[i:i + cols]
+        col_group = st.columns(cols)
         for ci, ins in enumerate(row):
-            with cols[ci]:
+            with col_group[ci]:
                 st.markdown(_chip(ins), unsafe_allow_html=True)
 
 
