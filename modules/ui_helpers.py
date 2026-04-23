@@ -170,3 +170,98 @@ HELP_TEXT = {
 def help_text(key: str) -> str:
     """표준 help 텍스트 반환. 키가 없으면 빈 문자열."""
     return HELP_TEXT.get(key, "")
+
+
+# ──────────────────────────────────────────────
+# Top Breadcrumb Bar (Linear/Notion 스타일)
+# ──────────────────────────────────────────────
+def render_topbar(
+    context: Optional[str] = None,
+    current_page: Optional[str] = None,
+    meta_right: Optional[str] = None,
+):
+    """페이지 상단에 breadcrumb + 우측 메타 정보를 렌더.
+
+    Args:
+        context: 왼쪽 경로 첫 부분 (예: 클라이언트명, 광고주명)
+        current_page: breadcrumb의 현재 페이지 이름 (강조됨)
+        meta_right: 우측 표시할 메타 (예: "Firebase · 2시간 전 · admin")
+    """
+    from modules.config import COLOR_TEXT, COLOR_TEXT_SEC, COLOR_TEXT_TER, COLOR_BORDER_SUBTLE
+
+    left_html = ""
+    if context and current_page:
+        left_html = (
+            f'<span style="color:{COLOR_TEXT_SEC};">{esc_html_safe(context)}</span>'
+            f'<span style="margin:0 8px;color:{COLOR_TEXT_SEC};opacity:0.5;">/</span>'
+            f'<span style="color:{COLOR_TEXT};font-weight:500;">{esc_html_safe(current_page)}</span>'
+        )
+    elif current_page:
+        left_html = (
+            f'<span style="color:{COLOR_TEXT};font-weight:500;">{esc_html_safe(current_page)}</span>'
+        )
+    elif context:
+        left_html = f'<span style="color:{COLOR_TEXT_SEC};">{esc_html_safe(context)}</span>'
+
+    right_html = (
+        f'<span style="color:{COLOR_TEXT_TER};">{esc_html_safe(meta_right)}</span>'
+        if meta_right else ""
+    )
+
+    st.markdown(
+        f'<div class="linear-topbar" style="'
+        f'display:flex;justify-content:space-between;align-items:center;'
+        f'padding:10px 0 14px 0;border-bottom:1px solid {COLOR_BORDER_SUBTLE};'
+        f'margin-bottom:20px;font-size:0.82rem;">'
+        f'  <div>{left_html}</div>'
+        f'  <div>{right_html}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def esc_html_safe(text) -> str:
+    """HTML 이스케이프 (로컬 import 회피)."""
+    if text is None:
+        return ""
+    import html as _html
+    return _html.escape(str(text), quote=True)
+
+
+# ──────────────────────────────────────────────
+# Linear/Notion 스타일 페이지 헤더
+# ──────────────────────────────────────────────
+def render_page_header(
+    title: str,
+    subtitle: Optional[str] = None,
+    kicker: Optional[str] = None,
+):
+    """페이지 상단에 표시할 큰 헤더 (kicker + title + subtitle).
+
+    프리뷰 레퍼런스:
+        업종 인사이트             ← kicker (카테고리명, 옅은 회색)
+        경쟁사 분석               ← title (크고 굵은)
+        분양 업종 · LMS 기준 ...  ← subtitle (설명)
+    """
+    from modules.config import COLOR_TEXT, COLOR_TEXT_TER, COLOR_TEXT_SEC
+
+    kicker_html = (
+        f'<div style="font-size:0.78rem;color:{COLOR_TEXT_TER};font-weight:500;'
+        f'margin-bottom:4px;letter-spacing:-0.005em;">{esc_html_safe(kicker)}</div>'
+        if kicker else ""
+    )
+    subtitle_html = (
+        f'<div style="font-size:0.92rem;color:{COLOR_TEXT_SEC};line-height:1.55;'
+        f'margin-top:6px;">{subtitle}</div>'
+        if subtitle else ""
+    )
+
+    st.markdown(
+        f'<div class="linear-page-head" style="margin-bottom:28px;">'
+        f'  {kicker_html}'
+        f'  <h1 style="font-size:1.5rem;font-weight:600;color:{COLOR_TEXT};'
+        f'letter-spacing:-0.02em;margin:0 0 4px 0;line-height:1.3;">{esc_html_safe(title)}</h1>'
+        f'  {subtitle_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )

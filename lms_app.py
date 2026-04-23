@@ -916,12 +916,41 @@ def main():
             data_mode = "upload"
             st.session_state['data_mode'] = "upload"
 
-    # ── 헤더 ──
-    st.markdown(
-        f'<div class="hero-header"><div class="title"><span class="accent">{company_name or "LMS"}</span> · 분석 대시보드</div><div class="subtitle">데이터 기반 성과 분석 · 인사이트 · 예측 · 전략 제안을 자동으로 생성합니다.</div></div>',
-        unsafe_allow_html=True,
-    )
-    st.divider()
+    # ── 상단 Breadcrumb 바 (Linear/Notion 스타일) ──
+    # client / current_page  +  우측 메타 (Firebase · 신선도 · 유저)
+    try:
+        from modules.ui_helpers import render_topbar
+        from modules.firebase_connector import get_latest_data_timestamp
+        from modules.ui_helpers import _format_relative_time
+
+        _ctx = company_name or "대시보드"
+        _page = nav_choice if nav_choice else None
+
+        # 우측 메타: 데이터 소스 + 최신 + 유저
+        _meta_parts = []
+        try:
+            if data_mode == "firebase":
+                _lt = get_latest_data_timestamp()
+                _rel = _format_relative_time(_lt) if _lt else None
+                _meta_parts.append(f"Firebase · {_rel or '실시간'}")
+            elif data_mode == "stored":
+                _meta_parts.append("저장된 데이터")
+            elif data_mode == "upload":
+                _meta_parts.append("업로드 파일")
+        except Exception:
+            pass
+        _user = get_user()
+        if _user:
+            _meta_parts.append(_user.get("name") or _user.get("username") or "")
+
+        render_topbar(
+            context=_ctx,
+            current_page=_page,
+            meta_right=" · ".join([p for p in _meta_parts if p]) or None,
+        )
+    except Exception:
+        # 어떤 이유로 실패해도 대시보드 렌더는 계속
+        pass
 
     # ── 데이터 로딩: 클라이언트 저장 데이터 또는 새 업로드 ──
     df_raw = None
