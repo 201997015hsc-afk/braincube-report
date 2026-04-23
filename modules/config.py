@@ -52,6 +52,22 @@ COLOR_BORDER_SUBTLE = "#F3F4F6"
 COLOR_DANGER = "#EF4444"
 COLOR_SUCCESS = "#10B981"
 COLOR_WARNING = "#F59E0B"
+
+# ──────────────────────────────────────────────
+# 타이포그래피 스케일 (6단계로 통일 — 15+개 분산 해결)
+# ──────────────────────────────────────────────
+#   TS_XS   0.72rem ≈ 11.5px — 캡션, 메타데이터, 작은 레이블
+#   TS_SM   0.82rem ≈ 13.1px — 보조 텍스트, 카드 라벨
+#   TS_BASE 0.9rem  ≈ 14.4px — 본문 기본
+#   TS_MD   1.05rem ≈ 16.8px — 서브섹션 제목
+#   TS_LG   1.25rem ≈ 20.0px — KPI 값, 카드 제목
+#   TS_XL   1.6rem  ≈ 25.6px — 페이지 타이틀
+TS_XS = "0.72rem"
+TS_SM = "0.82rem"
+TS_BASE = "0.9rem"
+TS_MD = "1.05rem"
+TS_LG = "1.25rem"
+TS_XL = "1.6rem"
 COLOR_BLUE = "#3182F6"
 
 # ──────────────────────────────────────────────
@@ -205,6 +221,32 @@ h3 {{
     font-size: 1.05rem !important;
     letter-spacing: -0.01em;
 }}
+
+/* ===== Typography Utility Classes (6-level scale) ===== */
+.ts-xs   {{ font-size: {TS_XS} !important; }}
+.ts-sm   {{ font-size: {TS_SM} !important; }}
+.ts-base {{ font-size: {TS_BASE} !important; }}
+.ts-md   {{ font-size: {TS_MD} !important; }}
+.ts-lg   {{ font-size: {TS_LG} !important; }}
+.ts-xl   {{ font-size: {TS_XL} !important; }}
+
+/* 폰트 무게 유틸 (Linear 감성 — 400/500/600만 사용) */
+.fw-normal {{ font-weight: 400 !important; }}
+.fw-medium {{ font-weight: 500 !important; }}
+.fw-bold   {{ font-weight: 600 !important; }}
+
+/* 컬러 유틸 */
+.tc-primary {{ color: {COLOR_TEXT} !important; }}
+.tc-sec     {{ color: {COLOR_TEXT_SEC} !important; }}
+.tc-ter     {{ color: {COLOR_TEXT_TER} !important; }}
+.tc-accent  {{ color: {BRAND_PRIMARY} !important; }}
+.tc-success {{ color: {COLOR_SUCCESS} !important; }}
+.tc-danger  {{ color: {COLOR_DANGER} !important; }}
+
+/* 간격 유틸 (Spacer div 제거용) */
+.space-sm {{ margin-top: 12px; }}
+.space-md {{ margin-top: 20px; }}
+.space-lg {{ margin-top: 32px; }}
 
 /* ===== Custom Scrollbar ===== */
 ::-webkit-scrollbar {{
