@@ -95,16 +95,17 @@ def _render_media_table(merged: pd.DataFrame, prev_month: str, latest_month: str
 
 
 def _render_highlight_card(kind: str, title: str, body: str):
-    """Best/Watch 카드 — Linear 스타일 (얇은 좌측 바 + flat 배경)"""
-    accent = COLOR_SUCCESS if kind == "best" else COLOR_DANGER if kind == "watch" else COLOR_TEXT_SEC
-    bg = (
-        "rgba(16,185,129,0.04)" if kind == "best"
-        else "rgba(239,68,68,0.04)" if kind == "watch"
-        else COLOR_BG
+    """Best/Watch/Info 공통 카드 — Linear 스타일 (흰 배경 + 얇은 보더 + 좌측 tone 3px 바).
+    모든 tone이 동일한 흰 배경을 사용해 페이지 전체 카드 시각언어 통일.
+    """
+    accent = (
+        COLOR_SUCCESS if kind == "best"
+        else COLOR_DANGER if kind == "watch"
+        else COLOR_TEXT_SEC  # info: 중립 회색
     )
     st.markdown(
         f'<div style="border:1px solid {COLOR_BORDER};border-left:3px solid {accent};'
-        f'border-radius:8px;padding:14px 18px;background:{bg};margin-bottom:8px;">'
+        f'border-radius:8px;padding:14px 18px;background:{COLOR_CARD};margin-bottom:8px;">'
         f'<div style="font-size:0.72rem;color:{accent};font-weight:600;'
         f'letter-spacing:0.04em;text-transform:uppercase;margin-bottom:4px;">{esc_html_safe(title.split("·")[0].strip())}</div>'
         f'<div style="font-size:0.92rem;color:{COLOR_TEXT};font-weight:500;margin-bottom:6px;">'
@@ -232,8 +233,8 @@ def render(df: pd.DataFrame):
                         _top_media = str(_top_rows.iloc[0].get('매체명', ''))
 
             st.markdown(
-                f'<div style="border:1px solid {COLOR_BORDER};border-radius:8px;'
-                f'padding:14px 16px;background:{COLOR_BG};">'
+                f'<div style="border:1px solid {COLOR_BORDER};border-left:3px solid {COLOR_TEXT_SEC};'
+                f'border-radius:8px;padding:14px 16px;background:{COLOR_CARD};">'
                 f'<div style="font-size:0.82rem;color:{COLOR_TEXT};font-weight:500;margin-bottom:6px;">'
                 f'이번 달은 안정적인 흐름입니다.</div>'
                 f'<div style="font-size:0.78rem;color:{COLOR_TEXT_SEC};line-height:1.55;">'
