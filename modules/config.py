@@ -375,11 +375,16 @@ section[data-testid="stSidebar"] .nav-cat-dot {{
     opacity: 0.9;
 }}
 
-/* 네비 버튼 공통 */
+/* 네비 버튼 공통 — 모든 Streamlit DOM 변형 커버 */
 section[data-testid="stSidebar"] div[data-testid="stVerticalBlock"] > div:has(> div > [data-testid="stButton"]) {{
     margin-bottom: 1px !important;
 }}
-section[data-testid="stSidebar"] .stButton > button {{
+/* 다양한 Streamlit 버전 DOM 셀렉터 모두 커버 */
+section[data-testid="stSidebar"] [data-testid="stButton"] button,
+section[data-testid="stSidebar"] .stButton button,
+section[data-testid="stSidebar"] .stButton > button,
+section[data-testid="stSidebar"] button[kind="primary"],
+section[data-testid="stSidebar"] button[kind="secondary"] {{
     background: transparent !important;
     border: none !important;
     color: #4B5563 !important;
@@ -393,18 +398,20 @@ section[data-testid="stSidebar"] .stButton > button {{
     box-shadow: none !important;
     transition: background 0.12s ease, color 0.12s ease !important;
     min-height: 34px !important;
-    height: 34px !important;
     line-height: 1.3 !important;
     display: flex !important;
     width: 100% !important;
+    max-width: 100% !important;
 }}
-/* 내부 마크다운 컨테이너도 좌측 정렬 강제 */
-section[data-testid="stSidebar"] .stButton > button [data-testid="stMarkdownContainer"] {{
+/* 내부 마크다운 컨테이너 — 좌측 정렬 강제 (중첩 셀렉터 모두 커버) */
+section[data-testid="stSidebar"] button > div,
+section[data-testid="stSidebar"] button [data-testid="stMarkdownContainer"],
+section[data-testid="stSidebar"] button [data-testid="stMarkdownContainer"] > div {{
     text-align: left !important;
     width: 100% !important;
-    display: flex !important;
-    justify-content: flex-start !important;
-    align-items: center !important;
+    display: block !important;
+    margin-left: 0 !important;
+    margin-right: auto !important;
 }}
 section[data-testid="stSidebar"] .stButton > button:hover {{
     background: #EEF0F3 !important;
@@ -428,11 +435,13 @@ section[data-testid="stSidebar"] .stButton > button[kind="primary"]:focus {{
     outline: none !important;
 }}
 /* 버튼 내부 텍스트 — 아이콘 정렬 */
-section[data-testid="stSidebar"] .stButton > button p {{
+section[data-testid="stSidebar"] .stButton button p,
+section[data-testid="stSidebar"] button p {{
     margin: 0 !important;
     font-size: 0.88rem !important;
     text-align: left !important;
     width: 100% !important;
+    display: block !important;
 }}
 
 /* ===== Metric Cards (st.metric) ===== */
