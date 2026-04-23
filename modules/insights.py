@@ -22,10 +22,10 @@ from modules.data_processing import (
 )
 
 _TONE = {
-    'positive': {'border': COLOR_SUCCESS, 'bg': 'rgba(29,191,115,0.06)'},
-    'negative': {'border': COLOR_DANGER,  'bg': 'rgba(255,71,87,0.06)'},
-    'warning':  {'border': COLOR_WARNING, 'bg': 'rgba(255,159,67,0.06)'},
-    'info':     {'border': '#3182F6',     'bg': 'rgba(49,130,246,0.06)'},
+    'positive': {'border': COLOR_SUCCESS},
+    'negative': {'border': COLOR_DANGER},
+    'warning':  {'border': COLOR_WARNING},
+    'info':     {'border': '#3182F6'},
 }
 
 
@@ -34,6 +34,7 @@ _TONE = {
 # ──────────────────────────────────────────────
 
 def _chip(ins: dict) -> str:
+    """Linear 스타일 인사이트 칩 — 흰 배경 + 얇은 보더 + 좌측 tone 색 3px."""
     t = _TONE.get(ins.get('tone', 'info'), _TONE['info'])
     icon = ins.get('icon', '💡')
     fact = ins.get('fact', '')
@@ -41,7 +42,12 @@ def _chip(ins: dict) -> str:
     action = ins.get('action', '')
     det = f'<div class="ic-detail">{detail}</div>' if detail else ''
     act = f'<div class="ic-action" style="border-color:{t["border"]}">→ {action}</div>' if action else ''
-    return f'<div class="insight-chip" style="background:{t["bg"]};border-left:3px solid {t["border"]}">{det}<div class="ic-fact">{icon} {fact}</div>{act}</div>'
+    # border-left-color만 tone으로, 배경/보더 다른 속성은 CSS 클래스가 담당
+    return (
+        f'<div class="insight-chip" style="border-left-color:{t["border"]}">'
+        f'{det}<div class="ic-fact">{icon} {fact}</div>{act}'
+        f'</div>'
+    )
 
 
 def render_insights(insights: list[dict], max_show: int = 4, cols: int = 2):

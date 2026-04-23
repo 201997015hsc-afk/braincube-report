@@ -1071,37 +1071,41 @@ hr {{
     color: {COLOR_TEXT_SEC};
 }}
 
-/* ===== Insight Chips ===== */
+/* ===== Insight Chips — Linear/Notion 감성 (flat + 얇은 보더) ===== */
 .insight-chip {{
-    border-radius: 12px;
-    padding: 14px 16px;
-    margin-bottom: 6px;
-    transition: all 0.25s ease;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+    border: 1px solid {COLOR_BORDER};
+    border-left: 3px solid {COLOR_BORDER};  /* tone별로 _TONE 에서 오버라이드 */
+    background: {COLOR_CARD} !important;     /* _TONE bg 덮어쓰기 — 배경 틴트 제거 */
+    transition: border-color 0.15s ease;
 }}
 .insight-chip:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+    border-color: #D1D5DB;
+    transform: none;
+    box-shadow: none;
 }}
 .insight-chip .ic-fact {{
-    font-size: 0.82rem;
-    font-weight: 700;
-    color: #191F28;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: {COLOR_TEXT};
     line-height: 1.4;
+    letter-spacing: -0.005em;
 }}
 .insight-chip .ic-detail {{
     font-size: 0.72rem;
-    color: {COLOR_TEXT_TER};
-    margin-bottom: 4px;
-    padding-left: 2px;
+    color: {COLOR_TEXT_SEC};
+    margin-bottom: 6px;
 }}
 .insight-chip .ic-action {{
     font-size: 0.78rem;
-    color: {COLOR_TEXT_SEC};
+    color: {COLOR_TEXT_TER};
     margin-top: 8px;
     padding-left: 10px;
     border-left-width: 2px;
     border-left-style: solid;
-    font-weight: 600;
+    font-weight: 500;
 }}
 
 /* ===== Fade-in animation ===== */
