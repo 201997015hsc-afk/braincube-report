@@ -206,14 +206,37 @@ def render(df: pd.DataFrame):
             f'자동 감지된 변화 포인트</div>',
             unsafe_allow_html=True,
         )
-        # 좁은 컬럼 안에서는 1열(수직 스택)로 — Streamlit nested columns 제약 회피
-        render_insights(
-            detect_summary(
-                cur_cost, prev_cost, cur_send, prev_send,
-                cur_click, prev_click, cur_ctr, prev_ctr, merged,
-            ),
-            cols=1,
+        _insights = detect_summary(
+            cur_cost, prev_cost, cur_send, prev_send,
+            cur_click, prev_click, cur_ctr, prev_ctr, merged,
         )
+        if _insights:
+            # 좁은 컬럼 안에서는 1열(수직 스택)로 — Streamlit nested columns 제약 회피
+            render_insights(_insights, cols=1)
+        else:
+            # 유의미한 변화가 감지되지 않은 경우 — 간단한 현황 요약으로 빈칸 방지
+            _n_up = int((merged['CTR변화'] > 0).sum()) if '클릭수_당월' in merged.columns and not merged.empty else 0
+            if 'CTR변화' not in merged.columns and not merged.empty:
+                merged['CTR변화'] = merged['CTR_당월'] - merged['CTR_전월']
+                _n_up = int((merged['CTR변화'] > 0).sum())
+            _n_tot = len(merged) if not merged.empty else 0
+            _top_media = ""
+            if not merged.empty and '클릭수_당월' in merged.columns:
+                _top = merged.nlargest(1, '클릭수_당월').iloc[0]
+                _top_media = str(_top.get('매체명', ''))
+
+            st.markdown(
+                f'<div style="border:1px solid {COLOR_BORDER};border-radius:8px;'
+                f'padding:14px 16px;background:{COLOR_BG};">'
+                f'<div style="font-size:0.82rem;color:{COLOR_TEXT};font-weight:500;margin-bottom:6px;">'
+                f'이번 달은 안정적인 흐름입니다.</div>'
+                f'<div style="font-size:0.78rem;color:{COLOR_TEXT_SEC};line-height:1.55;">'
+                f'• 매체 <b style="color:{COLOR_TEXT};">{_n_tot}개</b> 중 <b style="color:{COLOR_SUCCESS};">{_n_up}개</b>가 CTR 상승<br>'
+                + (f'• 클릭 1위 매체: <b style="color:{COLOR_TEXT};">{esc_html_safe(_top_media)}</b><br>' if _top_media else '')
+                + '• 유의미한 변화 임계치 미달 — 이상치 없음'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
 
     st.markdown('<div class="space-lg"></div>', unsafe_allow_html=True)
 
