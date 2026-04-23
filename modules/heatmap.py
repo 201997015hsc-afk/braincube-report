@@ -172,89 +172,125 @@ _CSS = """
 # ──────────────────────────────────────────────
 
 def _quadrant_chart(totals: pd.DataFrame) -> go.Figure:
+    """
+    매체 사분면 버블 차트 — Linear/Notion 스타일로 정리
+    - 매체 수 제한: 클릭수 TOP 20만 표시 (그 외는 "기타"로 집계하지 않고 생략)
+    - 색상: 브랜드 오렌지 단일 톤 (진하기만 CTR에 비례)
+    - 레이블: 상위 8개만 텍스트 표시, 나머지는 hover로만
+    - 사분면: 이모지 제거, 옅은 회색 텍스트
+    """
     valid = totals[(totals['발송량'] > 0) & (totals['클릭수'] > 0)].copy()
     if valid.empty:
         return None
 
-    colors = [CHART_COLORS[i % len(CHART_COLORS)] for i in range(len(valid))]
-    max_clicks = valid['클릭수'].max()
-    valid['bubble_size'] = (valid['클릭수'] / max_clicks * 40).clip(lower=8)
+    # 너무 많은 매체 → 클릭수 상위 20개만
+    MAX_MEDIA = 20
+    valid = valid.sort_values('클릭수', ascending=False).head(MAX_MEDIA).reset_index(drop=True)
 
-    # 중앙선
+    max_clicks = valid['클릭수'].max()
+    valid['bubble_size'] = (valid['클릭수'] / max_clicks * 40).clip(lower=10)
+
+    # 중앙선 (중위값)
     med_sends = valid['발송량'].median()
     med_ctr = valid['CTR'].median()
 
+    # 상위 8개만 텍스트 레이블 노출
+    LABEL_TOP_N = 8
+    valid['_show_label'] = False
+    valid.loc[valid.head(LABEL_TOP_N).index, '_show_label'] = True
+
     fig = go.Figure()
 
-    for i, (_, row) in enumerate(valid.iterrows()):
-        fig.add_trace(go.Scatter(
-            x=[row['발송량']],
-            y=[row['CTR']],
-            mode='markers+text',
-            marker=dict(size=row['bubble_size'], color=colors[i], opacity=0.8,
-                        line=dict(width=1.5, color='#FFFFFF')),
-            text=[row['매체명']],
-            textposition='top center',
-            textfont=dict(size=11, color='#4E5968', family='Pretendard, sans-serif'),
-            cliponaxis=False,
-            hovertemplate=(
-                f'<b>{row["매체명"]}</b><br>'
-                f'발송: {row["발송량"]:,.0f}건<br>'
-                f'CTR: {row["CTR"]:.2f}%<br>'
-                f'클릭: {row["클릭수"]:,.0f}회'
-                f'<extra></extra>'
-            ),
-            showlegend=False,
-        ))
+    # 모든 매체: 단일 오렌지 버블, CTR 위치로 진하기 구분 없이 통일
+    fig.add_trace(go.Scatter(
+        x=valid['발송량'],
+        y=valid['CTR'],
+        mode='markers+text',
+        marker=dict(
+            size=valid['bubble_size'],
+            color='#F7931D',
+            opacity=0.55,
+            line=dict(width=1, color='#FFFFFF'),
+        ),
+        text=[row['매체명'] if row['_show_label'] else '' for _, row in valid.iterrows()],
+        textposition='top center',
+        textfont=dict(size=10, color='#4B5563', family='Pretendard, sans-serif'),
+        cliponaxis=False,
+        hovertemplate=(
+            '<b>%{customdata[0]}</b><br>'
+            '발송: %{x:,.0f}건<br>'
+            'CTR: %{y:.2f}%<br>'
+            '클릭: %{customdata[1]:,.0f}회'
+            '<extra></extra>'
+        ),
+        customdata=list(zip(valid['매체명'], valid['클릭수'])),
+        showlegend=False,
+    ))
 
-    # 중앙 기준선
-    fig.add_hline(y=med_ctr, line_dash="dot", line_color="#E0E0E0", line_width=1)
-    fig.add_vline(x=med_sends, line_dash="dot", line_color="#E0E0E0", line_width=1)
+    # 중앙 기준선 (얇고 옅은 점선)
+    fig.add_hline(y=med_ctr, line_dash="dot", line_color="#E5E7EB", line_width=1)
+    fig.add_vline(x=med_sends, line_dash="dot", line_color="#E5E7EB", line_width=1)
 
-    # 사분면 라벨
-    x_range = valid['발송량'].max() - valid['발송량'].min()
-    y_range = valid['CTR'].max() - valid['CTR'].min()
-    x_min = valid['발송량'].min() - x_range * 0.15
-    x_max = valid['발송량'].max() + x_range * 0.25
-    y_min = max(0, valid['CTR'].min() - y_range * 0.2)
-    y_max = valid['CTR'].max() + y_range * 0.25
+    # 사분면 라벨 — 이모지 제거, 옅은 회색으로 통일, 더 작게
+    x_min_val = valid['발송량'].min()
+    x_max_val = valid['발송량'].max()
+    y_min_val = valid['CTR'].min()
+    y_max_val = valid['CTR'].max()
+    x_range = max(x_max_val - x_min_val, 1)
+    y_range = max(y_max_val - y_min_val, 0.1)
+
+    x_min = x_min_val - x_range * 0.15
+    x_max = x_max_val + x_range * 0.25
+    y_min = max(0, y_min_val - y_range * 0.2)
+    y_max = y_max_val + y_range * 0.20
+
+    QUAD_LABEL_FONT = dict(size=11, color="#9CA3AF", family="Pretendard, sans-serif")
+    QUAD_SUB_COLOR = "#D1D5DB"
 
     labels = [
-        dict(x=x_min + x_range * 0.08, y=y_max - y_range * 0.05,
-             text="🌱 성장 가능<br><span style='font-size:10px;color:#8B95A1'>효율 좋음 · 발송 늘려볼 것</span>",
-             font=dict(size=12, color="#2E7D32")),
-        dict(x=x_max - x_range * 0.15, y=y_max - y_range * 0.05,
-             text="⭐ 스타 매체<br><span style='font-size:10px;color:#8B95A1'>효율+규모 모두 우수</span>",
-             font=dict(size=12, color="#F7931D")),
-        dict(x=x_min + x_range * 0.08, y=y_min + y_range * 0.05,
-             text="❓ 검토 대상<br><span style='font-size:10px;color:#8B95A1'>축소 또는 중단</span>",
-             font=dict(size=12, color="#8B95A1")),
-        dict(x=x_max - x_range * 0.15, y=y_min + y_range * 0.05,
-             text="🔧 개선 필요<br><span style='font-size:10px;color:#8B95A1'>소재·타겟 점검</span>",
-             font=dict(size=12, color="#3182F6")),
+        # 좌상: 성장 가능
+        dict(x=x_min + x_range * 0.02, y=y_max - y_range * 0.02,
+             text="성장 가능<br>"
+                  f"<span style='font-size:9px;color:{QUAD_SUB_COLOR}'>효율 좋음 · 발송 확대</span>",
+             xanchor='left', yanchor='top'),
+        # 우상: 스타 매체
+        dict(x=x_max - x_range * 0.02, y=y_max - y_range * 0.02,
+             text="스타 매체<br>"
+                  f"<span style='font-size:9px;color:{QUAD_SUB_COLOR}'>효율+규모 모두 우수</span>",
+             xanchor='right', yanchor='top'),
+        # 좌하: 검토 대상
+        dict(x=x_min + x_range * 0.02, y=y_min + y_range * 0.02,
+             text="검토 대상<br>"
+                  f"<span style='font-size:9px;color:{QUAD_SUB_COLOR}'>축소 또는 중단</span>",
+             xanchor='left', yanchor='bottom'),
+        # 우하: 개선 필요
+        dict(x=x_max - x_range * 0.02, y=y_min + y_range * 0.02,
+             text="개선 필요<br>"
+                  f"<span style='font-size:9px;color:{QUAD_SUB_COLOR}'>소재·타겟 점검</span>",
+             xanchor='right', yanchor='bottom'),
     ]
     for lb in labels:
         fig.add_annotation(
             x=lb['x'], y=lb['y'], text=lb['text'],
-            showarrow=False, font=lb['font'],
-            xanchor='left', yanchor='top',
+            showarrow=False, font=QUAD_LABEL_FONT,
+            xanchor=lb['xanchor'], yanchor=lb['yanchor'],
         )
 
     layout = {**PLOTLY_LAYOUT}
     layout.update(
         title=dict(text=""),
-        height=420,
-        margin=dict(t=20, l=60, r=30, b=50),
+        height=440,
+        margin=dict(t=30, l=60, r=30, b=50),
         xaxis=dict(
-            title=dict(text="발송량 (규모)", font=dict(size=12, color='#8B95A1')),
-            showgrid=True, gridcolor='#F2F4F6', gridwidth=1,
-            tickfont=dict(size=10, color='#8B95A1'),
+            title=dict(text="발송량 (규모)", font=dict(size=11, color='#9CA3AF')),
+            showgrid=False,
+            tickfont=dict(size=10, color='#9CA3AF'),
             range=[x_min, x_max],
         ),
         yaxis=dict(
-            title=dict(text="CTR % (효율)", font=dict(size=12, color='#8B95A1')),
-            showgrid=True, gridcolor='#F2F4F6', gridwidth=1,
-            tickfont=dict(size=10, color='#8B95A1'),
+            title=dict(text="CTR % (효율)", font=dict(size=11, color='#9CA3AF')),
+            showgrid=True, gridcolor='#F3F4F6', gridwidth=1,
+            tickfont=dict(size=10, color='#9CA3AF'),
             range=[y_min, y_max],
         ),
     )

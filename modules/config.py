@@ -454,15 +454,15 @@ section[data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {{
     padding: 0 !important;
     line-height: 1.5 !important;
 }}
-/* 선택된 chip: 오렌지 틴트 배경 + 오렌지 보더/글씨 */
+/* 선택된 chip: 차분한 회색 배경 + 진한 텍스트 (Linear/Notion 스타일) */
 .stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked),
 .block-container div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) {{
-    border-color: {BRAND_PRIMARY} !important;
-    background: rgba(247, 147, 29, 0.10) !important;
+    border-color: #D1D5DB !important;
+    background: #F3F4F6 !important;
 }}
 .stMainBlockContainer div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) p,
 .block-container div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) p {{
-    color: {BRAND_PRIMARY} !important;
+    color: {COLOR_TEXT} !important;
     font-weight: 600 !important;
 }}
 /* 사이드바 라디오에는 chip 스타일 적용 안 됨 (사이드바 rule이 이미 존재하고 더 구체적) — 확실히 분리하기 위해 사이드바 내부 오버라이드 */
