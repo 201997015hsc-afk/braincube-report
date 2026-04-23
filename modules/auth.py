@@ -532,198 +532,170 @@ def render_account_manager():
 
 _LOGIN_CSS = f"""
 <style>
-/* ── 전체 배경: 그라디언트 + 부유 오브 ── */
+/* ═══════════════════════════════════════════════════
+   로그인 페이지 — Linear/Notion 감성 (밝고 깔끔)
+   ═══════════════════════════════════════════════════ */
+
+/* 전체 배경: 매우 옅은 회백색 */
 .stApp {{
-    background: linear-gradient(135deg, #0F1724 0%, #1A2540 40%, #162036 100%) !important;
-    overflow: hidden;
-}}
-.stApp::before {{
-    content: '';
-    position: fixed;
-    top: -120px; right: -120px;
-    width: 420px; height: 420px;
-    background: radial-gradient(circle, rgba(247,147,29,0.18) 0%, transparent 70%);
-    border-radius: 50%;
-    pointer-events: none;
-    animation: floatOrb1 8s ease-in-out infinite;
-}}
-.stApp::after {{
-    content: '';
-    position: fixed;
-    bottom: -100px; left: -80px;
-    width: 360px; height: 360px;
-    background: radial-gradient(circle, rgba(49,130,246,0.15) 0%, transparent 70%);
-    border-radius: 50%;
-    pointer-events: none;
-    animation: floatOrb2 10s ease-in-out infinite;
-}}
-@keyframes floatOrb1 {{
-    0%, 100% {{ transform: translate(0, 0) scale(1); }}
-    50% {{ transform: translate(-30px, 25px) scale(1.08); }}
-}}
-@keyframes floatOrb2 {{
-    0%, 100% {{ transform: translate(0, 0) scale(1); }}
-    50% {{ transform: translate(20px, -20px) scale(1.05); }}
+    background: #FAFBFC !important;
 }}
 
-/* ── 사이드바 숨김 ── */
+/* 사이드바 숨김 */
 section[data-testid='stSidebar'] {{ display: none !important; }}
 
-/* ── Streamlit 기본 헤더/디플로이 숨김 ── */
+/* Streamlit 기본 헤더 투명 */
 header[data-testid="stHeader"] {{
     background: transparent !important;
 }}
 
-/* ── 메인 블록 중앙 정렬 + 최대 너비 ── */
+/* 메인 블록 중앙 정렬 + 좁은 폭 */
 .stMainBlockContainer {{
-    max-width: 440px !important;
+    max-width: 400px !important;
     margin: 0 auto !important;
-    padding-top: 40px !important;
+    padding-top: 56px !important;
 }}
 
-/* ── 카드 (글래스모피즘) ── */
+/* 상단 로고·타이틀 영역 */
 .login-card {{
-    padding: 48px 4px 0 4px;
+    padding: 0 4px 0 4px;
     text-align: center;
 }}
 
-/* ── 폼 영역도 글래스 카드 스타일 ── */
+/* 폼 컨테이너 — 얇은 보더 플랫 카드 */
 [data-testid="stForm"] {{
-    background: rgba(255,255,255,0.05) !important;
-    backdrop-filter: blur(20px) !important;
-    -webkit-backdrop-filter: blur(20px) !important;
-    border-radius: 24px !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.20) !important;
-    padding: 32px 28px 28px 28px !important;
+    background: #FFFFFF !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border-radius: 12px !important;
+    border: 1px solid #E5E7EB !important;
+    box-shadow: none !important;
+    padding: 32px 28px 24px 28px !important;
 }}
 
-/* ── 로고 아이콘 ── */
+/* 로고 아이콘 — 플랫 브랜드 오렌지 */
 .login-logo {{
-    width: 64px; height: 64px;
-    margin: 0 auto 20px auto;
-    border-radius: 18px;
-    background: linear-gradient(135deg, {BRAND_PRIMARY}, #3182F6);
+    width: 52px; height: 52px;
+    margin: 0 auto 18px auto;
+    border-radius: 12px;
+    background: {BRAND_PRIMARY};
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 4px 20px rgba(247,147,29,0.35);
-    animation: logoPulse 3s ease-in-out infinite;
+    box-shadow: none;
+    animation: none;
 }}
 .login-logo svg {{
-    width: 32px; height: 32px;
-}}
-@keyframes logoPulse {{
-    0%, 100% {{ box-shadow: 0 4px 20px rgba(247,147,29,0.35); }}
-    50% {{ box-shadow: 0 6px 28px rgba(247,147,29,0.50); }}
+    width: 28px; height: 28px;
 }}
 
-/* ── 타이틀 ── */
+/* 타이틀 — 단색 · 세미볼드 */
 .login-title {{
     text-align: center;
     margin-bottom: 6px;
-    font-size: 1.55rem;
-    font-weight: 800;
-    letter-spacing: -0.04em;
-    background: linear-gradient(135deg, #FFFFFF 30%, rgba(247,147,29,0.9));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #111827;
+    background: none;
+    -webkit-text-fill-color: #111827;
 }}
 .login-subtitle {{
     text-align: center;
     font-size: 0.82rem;
-    color: rgba(255,255,255,0.45);
-    margin-bottom: 36px;
-    letter-spacing: -0.01em;
+    color: #6B7280;
+    margin-bottom: 28px;
+    letter-spacing: -0.005em;
 }}
 
-/* ── 구분선 ── */
+/* 구분선 — 연한 회색 */
 .login-divider {{
     display: flex; align-items: center; gap: 12px;
-    margin: 0 0 24px 0;
+    margin: 0 0 20px 0;
 }}
 .login-divider .line {{
     flex: 1; height: 1px;
-    background: rgba(255,255,255,0.08);
+    background: #E5E7EB;
 }}
 .login-divider .text {{
-    font-size: 0.7rem; color: rgba(255,255,255,0.25);
+    font-size: 0.72rem; color: #9CA3AF;
     white-space: nowrap;
+    font-weight: 500;
 }}
 
-/* ── 인풋 오버라이드 ── */
+/* 인풋 — 얇은 보더, 흰 배경 */
 .stTextInput > div > div {{
-    background: transparent !important;
-    border: 1.5px solid rgba(255,255,255,0.18) !important;
-    border-radius: 14px !important;
-    color: #FFFFFF !important;
-    transition: border 0.2s, box-shadow 0.2s;
+    background: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 8px !important;
+    color: #111827 !important;
+    transition: border-color 0.15s, box-shadow 0.15s;
 }}
 .stTextInput > div > div:focus-within {{
     border-color: {BRAND_PRIMARY} !important;
-    box-shadow: 0 0 0 3px rgba(247,147,29,0.12) !important;
-    background: transparent !important;
+    box-shadow: 0 0 0 3px rgba(247,147,29,0.10) !important;
+    background: #FFFFFF !important;
 }}
 .stTextInput input {{
-    color: #191F28 !important;
-    font-size: 0.95rem !important;
-    font-weight: 600 !important;
+    color: #111827 !important;
+    font-size: 0.9rem !important;
+    font-weight: 500 !important;
     caret-color: {BRAND_PRIMARY} !important;
-    -webkit-text-fill-color: #191F28 !important;
+    -webkit-text-fill-color: #111827 !important;
 }}
 .stTextInput input::placeholder {{
-    color: rgba(255,255,255,0.28) !important;
-    -webkit-text-fill-color: rgba(255,255,255,0.28) !important;
+    color: #9CA3AF !important;
+    -webkit-text-fill-color: #9CA3AF !important;
 }}
 .stTextInput label {{
-    color: rgba(255,255,255,0.65) !important;
-    font-weight: 600 !important;
+    color: #4B5563 !important;
+    font-weight: 500 !important;
     font-size: 0.82rem !important;
 }}
-/* Streamlit 힌트 텍스트 숨김 (Press Enter to submit form 등) */
+/* Streamlit 힌트 텍스트 숨김 */
 .stTextInput [data-testid="InputInstructions"] {{
     display: none !important;
 }}
 
-/* ── 버튼 오버라이드 ── */
+/* 버튼 — 플랫 솔리드 */
 .stFormSubmitButton button {{
-    background: linear-gradient(135deg, {BRAND_PRIMARY}, #E8820A) !important;
+    background: {BRAND_PRIMARY} !important;
     color: #FFFFFF !important;
     border: none !important;
-    border-radius: 14px !important;
-    padding: 12px 0 !important;
-    font-size: 0.95rem !important;
-    font-weight: 700 !important;
-    letter-spacing: -0.01em;
-    box-shadow: 0 4px 16px rgba(247,147,29,0.30) !important;
-    transition: transform 0.15s, box-shadow 0.15s !important;
+    border-radius: 8px !important;
+    padding: 11px 0 !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.005em;
+    box-shadow: none !important;
+    transition: background 0.15s !important;
 }}
 .stFormSubmitButton button:hover {{
-    transform: translateY(-1px) !important;
-    box-shadow: 0 6px 24px rgba(247,147,29,0.45) !important;
+    background: #E67E00 !important;
+    transform: none !important;
+    box-shadow: none !important;
 }}
 .stFormSubmitButton button:active {{
-    transform: translateY(0) !important;
+    transform: none !important;
 }}
 
-/* ── 푸터 ── */
+/* 푸터 */
 .login-footer {{
     text-align: center;
-    margin-top: 28px;
-    font-size: 0.7rem;
-    color: rgba(255,255,255,0.20);
-    letter-spacing: 0.02em;
+    margin-top: 24px;
+    font-size: 0.72rem;
+    color: #9CA3AF;
+    letter-spacing: 0;
 }}
 .login-footer a {{
-    color: rgba(255,255,255,0.35);
+    color: #6B7280;
     text-decoration: none;
 }}
 
-/* ── 에러 메시지 스타일 ── */
+/* 에러 메시지 */
 .stAlert {{
-    background: rgba(244,67,54,0.12) !important;
-    border: 1px solid rgba(244,67,54,0.25) !important;
-    border-radius: 12px !important;
-    color: #FF8A80 !important;
+    background: rgba(239,68,68,0.05) !important;
+    border: 1px solid rgba(239,68,68,0.25) !important;
+    border-radius: 8px !important;
+    color: #DC2626 !important;
 }}
 </style>
 """

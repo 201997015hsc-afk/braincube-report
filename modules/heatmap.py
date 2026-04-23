@@ -59,6 +59,7 @@ def _build_media_totals(df_hash: str, _df: pd.DataFrame) -> pd.DataFrame:
 
 _CSS = """
 <style>
+/* ===== Linear/Notion 스타일 — 플랫·얇은 보더 ===== */
 .mc-top {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -67,94 +68,101 @@ _CSS = """
 }
 .mc-top-card {
     background: #FFFFFF;
-    border-radius: 14px;
-    padding: 16px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
-    text-align: center;
-    transition: all 0.2s ease;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: none;
+    text-align: left;
+    transition: border-color 0.15s ease;
 }
-.mc-top-card:hover {
-    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-    transform: translateY(-2px);
-}
-.mc-top-icon { font-size: 1.3rem; }
+.mc-top-card:hover { border-color: #D1D5DB; }
+.mc-top-icon { font-size: 1.1rem; }
 .mc-top-label {
-    font-size: 0.72rem; color: #8B95A1; font-weight: 600; margin-top: 4px;
+    font-size: 0.72rem; color: #6B7280; font-weight: 500; margin-top: 6px;
+    letter-spacing: -0.005em;
 }
 .mc-top-value {
-    font-weight: 800; font-size: 1rem; color: #191F28; margin-top: 2px;
+    font-weight: 600; font-size: 1rem; color: #111827; margin-top: 4px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    letter-spacing: -0.01em; font-feature-settings: "tnum";
 }
 .mc-top-sub {
-    font-size: 0.73rem; color: #8B95A1; margin-top: 2px;
+    font-size: 0.72rem; color: #6B7280; margin-top: 4px;
 }
-.mc-top-sub b { color: #F7931D; font-weight: 700; }
+.mc-top-sub b { color: #F7931D; font-weight: 600; }
 
 /* 매체 카드 */
 .mc-card {
     background: #FFFFFF;
-    border-radius: 16px;
-    padding: 20px 24px;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    padding: 18px 22px;
     margin-bottom: 10px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
-    transition: all 0.2s ease;
+    box-shadow: none;
+    transition: border-color 0.15s ease;
 }
-.mc-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+.mc-card:hover { border-color: #D1D5DB; }
 .mc-header {
     display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 .mc-name { display: flex; align-items: center; gap: 10px; }
-.mc-dot { width: 12px; height: 12px; border-radius: 4px; flex-shrink: 0; }
-.mc-title { font-weight: 700; font-size: 0.95rem; color: #191F28; }
+.mc-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.mc-title { font-weight: 600; font-size: 0.92rem; color: #111827; letter-spacing: -0.005em; }
 .mc-rank {
-    font-size: 0.72rem; font-weight: 700; padding: 3px 10px;
-    border-radius: 12px; color: #FFFFFF;
+    font-size: 0.70rem; font-weight: 500; padding: 2px 8px;
+    border-radius: 5px; color: #FFFFFF; letter-spacing: -0.005em;
 }
-.mc-stats { display: flex; gap: 20px; margin-bottom: 12px; }
-.mc-stat-label { font-size: 0.7rem; color: #8B95A1; font-weight: 600; }
-.mc-stat-value { font-weight: 800; font-size: 1.05rem; color: #191F28; margin-top: 1px; }
+.mc-stats { display: flex; gap: 24px; margin-bottom: 12px; }
+.mc-stat-label { font-size: 0.70rem; color: #6B7280; font-weight: 500; }
+.mc-stat-value {
+    font-weight: 600; font-size: 1rem; color: #111827; margin-top: 2px;
+    letter-spacing: -0.01em; font-feature-settings: "tnum";
+}
 .mc-stat-value.accent { color: #F7931D; }
 .mc-best-badge {
     display: inline-flex; align-items: center; gap: 4px;
-    font-size: 0.73rem; font-weight: 600; color: #2E7D32;
-    background: #E8F5E9; padding: 3px 10px; border-radius: 12px; margin-left: 10px;
+    font-size: 0.72rem; font-weight: 500; color: #10B981;
+    background: rgba(16,185,129,0.10); padding: 2px 8px; border-radius: 5px; margin-left: 10px;
+    letter-spacing: -0.005em;
 }
 /* 바 행 */
 .mc-bar-row {
     display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
 }
 .mc-bar-label {
-    font-size: 0.75rem; color: #8B95A1; width: 52px; text-align: right;
+    font-size: 0.72rem; color: #6B7280; width: 52px; text-align: right;
     flex-shrink: 0; font-weight: 500;
 }
 .mc-bar-track {
-    flex: 1; height: 24px; background: #F2F4F6; border-radius: 6px;
+    flex: 1; height: 22px; background: #F3F4F6; border-radius: 4px;
     overflow: hidden; position: relative;
 }
 .mc-bar-fill {
-    height: 24px; border-radius: 6px;
+    height: 22px; border-radius: 4px;
     display: flex; align-items: center; padding: 0 8px;
     transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
 }
 .mc-bar-inner-text {
-    font-size: 0.71rem; font-weight: 700; color: #FFFFFF; white-space: nowrap;
+    font-size: 0.70rem; font-weight: 500; color: #FFFFFF; white-space: nowrap;
+    letter-spacing: -0.005em;
 }
 .mc-bar-outer {
     display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 6px;
 }
 .mc-bar-clicks {
-    font-size: 0.73rem; font-weight: 700; color: #191F28; min-width: 48px; text-align: right;
+    font-size: 0.74rem; font-weight: 600; color: #111827; min-width: 48px; text-align: right;
+    font-feature-settings: "tnum";
 }
 .mc-bar-ctr {
-    font-size: 0.68rem; color: #8B95A1; min-width: 52px;
+    font-size: 0.70rem; color: #6B7280; min-width: 52px;
 }
 .mc-bar-sends {
-    font-size: 0.65rem; color: #B0B8C1; min-width: 52px;
+    font-size: 0.65rem; color: #9CA3AF; min-width: 52px;
 }
 .mc-bar-dim .mc-bar-fill { opacity: 0.35; }
-.mc-bar-dim .mc-bar-clicks { color: #B0B8C1; }
-.mc-bar-dim .mc-bar-ctr { color: #CDD1D6; }
+.mc-bar-dim .mc-bar-clicks { color: #9CA3AF; }
+.mc-bar-dim .mc-bar-ctr { color: #D1D5DB; }
 </style>
 """
 
@@ -375,66 +383,70 @@ def _render_media_card(
 
 _WEEKDAY_CSS = """
 <style>
+/* ===== Linear/Notion 스타일 ===== */
 .wd-guide {
     background: #FFFFFF;
-    border-radius: 16px;
-    padding: 20px 24px;
+    border: 1px solid #E5E7EB;
+    border-radius: 10px;
+    padding: 18px 22px;
     margin-bottom: 16px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+    box-shadow: none;
 }
 .wd-guide-title {
-    font-weight: 700; font-size: 0.95rem; color: #191F28; margin-bottom: 14px;
+    font-weight: 600; font-size: 0.92rem; color: #111827; margin-bottom: 14px;
+    letter-spacing: -0.005em;
 }
 .wd-row {
     display: flex; align-items: center; gap: 12px;
     padding: 10px 0;
-    border-bottom: 1px solid #F2F4F6;
+    border-bottom: 1px solid #F3F4F6;
 }
 .wd-row:last-child { border-bottom: none; }
 .wd-media {
-    font-weight: 700; font-size: 0.88rem; color: #191F28;
+    font-weight: 600; font-size: 0.85rem; color: #111827;
     width: 130px; flex-shrink: 0;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    letter-spacing: -0.005em;
 }
 .wd-days {
     display: flex; gap: 5px; flex: 1;
 }
 .wd-day {
-    width: 42px; height: 36px;
-    border-radius: 8px;
+    width: 40px; height: 32px;
+    border-radius: 6px;
     display: flex; align-items: center; justify-content: center;
-    font-size: 0.75rem; font-weight: 600;
-    transition: all 0.2s ease;
+    font-size: 0.74rem; font-weight: 500;
+    transition: all 0.15s ease;
 }
 .wd-day-best {
-    color: #FFFFFF; font-weight: 800; font-size: 0.8rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-    transform: scale(1.05);
+    color: #FFFFFF; font-weight: 600; font-size: 0.78rem;
+    box-shadow: none;
+    transform: none;
 }
 .wd-day-good {
-    color: #FFFFFF; opacity: 0.8;
+    color: #FFFFFF; opacity: 0.75;
 }
 .wd-day-normal {
-    background: #F2F4F6; color: #8B95A1;
+    background: #F3F4F6; color: #6B7280;
 }
 .wd-day-low {
-    background: #F7F8FA; color: #CDD1D6;
+    background: #FAFBFC; color: #D1D5DB;
 }
 .wd-rec {
-    font-size: 0.78rem; color: #4E5968; width: 120px; text-align: right;
+    font-size: 0.76rem; color: #4B5563; width: 120px; text-align: right;
     flex-shrink: 0;
 }
-.wd-rec b { color: #F7931D; }
+.wd-rec b { color: #F7931D; font-weight: 600; }
 .wd-legend {
-    display: flex; gap: 16px; margin-top: 12px;
-    padding-top: 10px; border-top: 1px solid #F2F4F6;
-    font-size: 0.72rem; color: #8B95A1;
+    display: flex; gap: 16px; margin-top: 14px;
+    padding-top: 12px; border-top: 1px solid #F3F4F6;
+    font-size: 0.72rem; color: #6B7280;
 }
 .wd-legend-item {
     display: flex; align-items: center; gap: 4px;
 }
 .wd-legend-dot {
-    width: 14px; height: 14px; border-radius: 4px;
+    width: 12px; height: 12px; border-radius: 3px;
 }
 </style>
 """

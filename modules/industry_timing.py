@@ -28,32 +28,35 @@ _DOW_FULL = ['월요일', '화요일', '수요일', '목요일', '금요일', '�
 # ══════════════════════════════════════════════
 
 _IT_CSS = """<style>
+/* ===== Linear/Notion 스타일 — 플랫·얇은 보더 ===== */
 .it-summary{display:flex;gap:12px;margin:12px 0 20px 0}
-.it-summary-item{flex:1;background:#FFF;border-radius:14px;padding:18px 16px;
-  box-shadow:0 1px 4px rgba(0,0,0,.03);text-align:center;transition:all .2s ease}
-.it-summary-item:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-1px)}
-.it-s-label{font-size:.75rem;color:#8B95A1;font-weight:600;margin-bottom:4px}
-.it-s-value{font-weight:800;font-size:1.2rem;color:#191F28}
-.it-s-sub{font-size:.72rem;color:#8B95A1;margin-top:2px}
-.it-day-card{background:#FFF;border-radius:14px;padding:18px;
-  box-shadow:0 1px 4px rgba(0,0,0,.03);text-align:center;transition:all .2s ease}
-.it-day-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-2px)}
-.it-day-medal{font-size:1.5rem}
-.it-day-name{font-weight:700;font-size:1rem;color:#191F28;margin-top:4px}
-.it-day-ctr{font-weight:800;font-size:1.3rem;color:#F7931D;margin-top:4px}
-.it-day-detail{font-size:.73rem;color:#8B95A1;margin-top:6px}
-.it-day-bar{margin-top:8px;background:#F2F4F6;border-radius:4px;height:6px;overflow:hidden}
-.it-day-bar-fill{height:6px;border-radius:4px;transition:width .5s ease}
+.it-summary-item{flex:1;background:#FFF;border:1px solid #E5E7EB;border-radius:10px;padding:16px 18px;
+  box-shadow:none;text-align:left;transition:border-color .15s ease}
+.it-summary-item:hover{border-color:#D1D5DB}
+.it-s-label{font-size:.75rem;color:#6B7280;font-weight:500;margin-bottom:8px;letter-spacing:-0.005em}
+.it-s-value{font-weight:600;font-size:1.4rem;color:#111827;letter-spacing:-0.02em;font-feature-settings:"tnum"}
+.it-s-sub{font-size:.72rem;color:#9CA3AF;margin-top:4px}
+
+.it-day-card{background:#FFF;border:1px solid #E5E7EB;border-radius:10px;padding:16px;
+  box-shadow:none;text-align:left;transition:border-color .15s ease}
+.it-day-card:hover{border-color:#D1D5DB}
+.it-day-medal{font-size:1.3rem}
+.it-day-name{font-weight:600;font-size:.95rem;color:#111827;margin-top:6px;letter-spacing:-0.005em}
+.it-day-ctr{font-weight:600;font-size:1.25rem;color:#F7931D;margin-top:4px;font-feature-settings:"tnum";letter-spacing:-0.015em}
+.it-day-detail{font-size:.72rem;color:#6B7280;margin-top:8px}
+.it-day-bar{margin-top:10px;background:#F3F4F6;border-radius:3px;height:4px;overflow:hidden}
+.it-day-bar-fill{height:4px;border-radius:3px;transition:width .5s ease}
+
 .it-gap-card{display:grid;grid-template-columns:1fr 80px 1fr;align-items:center;
-  padding:14px 20px;margin-bottom:6px;background:#FFF;border-radius:14px;
-  box-shadow:0 1px 4px rgba(0,0,0,.03);transition:all .2s ease}
-.it-gap-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-1px)}
+  padding:14px 20px;margin-bottom:6px;background:#FFF;border:1px solid #E5E7EB;border-radius:10px;
+  box-shadow:none;transition:border-color .15s ease}
+.it-gap-card:hover{border-color:#D1D5DB}
 .it-gap-left{text-align:left}
 .it-gap-right{text-align:right}
-.it-gap-mid{text-align:center;font-weight:700;font-size:.82rem;color:#8B95A1;white-space:nowrap}
+.it-gap-mid{text-align:center;font-weight:500;font-size:.78rem;color:#6B7280;white-space:nowrap}
 .it-gap-mid > div{white-space:nowrap}
-.it-gap-label{font-size:.70rem;color:#8B95A1;font-weight:600}
-.it-gap-val{font-weight:800;font-size:1rem;color:#191F28}
+.it-gap-label{font-size:.70rem;color:#6B7280;font-weight:500}
+.it-gap-val{font-weight:600;font-size:.95rem;color:#111827;font-feature-settings:"tnum";letter-spacing:-0.01em}
 </style>"""
 
 

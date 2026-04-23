@@ -209,53 +209,59 @@ def _my_summary(df: pd.DataFrame) -> dict:
 # ══════════════════════════════════════════════
 
 _CB_CSS = """<style>
+/* ===== Linear/Notion 스타일 — 플랫·얇은 보더·호버는 보더 컬러만 변경 ===== */
 .cb-summary{display:flex;gap:12px;margin:12px 0 20px 0}
-.cb-summary-item{flex:1;background:#FFF;border-radius:14px;padding:18px 16px;box-shadow:0 1px 4px rgba(0,0,0,.03);text-align:center;transition:all .2s ease}
-.cb-summary-item:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-1px)}
-.cb-s-label{font-size:.75rem;color:#8B95A1;font-weight:600;margin-bottom:4px}
-.cb-s-value{font-weight:800;font-size:1.2rem;color:#191F28}
-.cb-s-sub{font-size:.72rem;color:#8B95A1;margin-top:2px}
-.cb-rank-card{background:#FFF;border-radius:14px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.03);text-align:center;transition:all .2s ease}
-.cb-rank-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-2px)}
-.cb-rank-medal{font-size:1.5rem}
-.cb-rank-name{font-weight:700;font-size:.85rem;color:#191F28;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cb-rank-score{font-weight:800;font-size:1.3rem;color:#F7931D;margin-top:4px}
-.cb-rank-bar{margin-top:8px;background:#F2F4F6;border-radius:4px;height:6px;overflow:hidden}
-.cb-rank-bar-fill{height:6px;border-radius:4px;transition:width .5s ease}
-.cb-rank-detail{font-size:.73rem;color:#8B95A1;margin-top:8px}
-.cb-vs-card{display:grid;grid-template-columns:1fr 40px 1fr;align-items:center;padding:14px 20px;margin-bottom:6px;background:#FFF;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.03);transition:all .2s ease}
-.cb-vs-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-1px)}
-.cb-vs-name{font-weight:700;font-size:.82rem;color:#191F28;margin-bottom:2px}
-.cb-vs-label{font-size:.70rem;color:#8B95A1;font-weight:600}
-.cb-vs-val{font-weight:800;font-size:1rem}
-.cb-vs-mid{text-align:center;font-size:.82rem;font-weight:700;color:#8B95A1}
+.cb-summary-item{flex:1;background:#FFF;border:1px solid #E5E7EB;border-radius:10px;padding:16px 18px;box-shadow:none;text-align:left;transition:border-color .15s ease}
+.cb-summary-item:hover{border-color:#D1D5DB}
+.cb-s-label{font-size:.75rem;color:#6B7280;font-weight:500;margin-bottom:8px;letter-spacing:-0.005em}
+.cb-s-value{font-weight:600;font-size:1.4rem;color:#111827;letter-spacing:-0.02em;font-feature-settings:"tnum"}
+.cb-s-sub{font-size:.72rem;color:#9CA3AF;margin-top:4px}
+
+.cb-rank-card{background:#FFF;border:1px solid #E5E7EB;border-radius:10px;padding:16px;box-shadow:none;text-align:left;transition:border-color .15s ease}
+.cb-rank-card:hover{border-color:#D1D5DB}
+.cb-rank-medal{font-size:1.3rem}
+.cb-rank-name{font-weight:600;font-size:.82rem;color:#111827;margin-top:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-0.005em}
+.cb-rank-score{font-weight:600;font-size:1.25rem;color:#F7931D;margin-top:4px;font-feature-settings:"tnum";letter-spacing:-0.015em}
+.cb-rank-bar{margin-top:10px;background:#F3F4F6;border-radius:3px;height:4px;overflow:hidden}
+.cb-rank-bar-fill{height:4px;border-radius:3px;transition:width .5s ease}
+.cb-rank-detail{font-size:.72rem;color:#6B7280;margin-top:10px}
+
+.cb-vs-card{display:grid;grid-template-columns:1fr 80px 1fr;align-items:center;padding:14px 20px;margin-bottom:6px;background:#FFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:none;transition:border-color .15s ease}
+.cb-vs-card:hover{border-color:#D1D5DB}
+.cb-vs-name{font-weight:600;font-size:.82rem;color:#111827;margin-bottom:2px;letter-spacing:-0.005em}
+.cb-vs-label{font-size:.70rem;color:#6B7280;font-weight:500}
+.cb-vs-val{font-weight:600;font-size:1rem;font-feature-settings:"tnum";letter-spacing:-0.01em}
+.cb-vs-mid{text-align:center;font-size:.78rem;font-weight:500;color:#6B7280;white-space:nowrap}
 .cb-vs-left{text-align:left}
 .cb-vs-right{text-align:right}
-.cb-media-card{display:grid;grid-template-columns:200px 1fr 90px;grid-template-rows:auto auto;align-items:center;gap:0 16px;padding:16px 20px;margin-bottom:6px;background:#FFF;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.03);transition:all .2s ease}
-.cb-media-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-1px)}
+
+.cb-media-card{display:grid;grid-template-columns:200px 1fr 90px;grid-template-rows:auto auto;align-items:center;gap:0 16px;padding:14px 18px;margin-bottom:6px;background:#FFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:none;transition:border-color .15s ease}
+.cb-media-card:hover{border-color:#D1D5DB}
 .cb-m-left{display:flex;align-items:center;gap:10px}
-.cb-m-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
-.cb-m-name{font-weight:700;font-size:.88rem;color:#191F28;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cb-m-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.cb-m-name{font-weight:600;font-size:.85rem;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-0.005em}
 .cb-m-center{width:100%}
-.cb-m-bar-bg{background:#F2F4F6;border-radius:4px;height:8px;width:100%;overflow:hidden}
-.cb-m-bar-fill{height:8px;border-radius:4px;transition:width .5s cubic-bezier(.4,0,.2,1)}
+.cb-m-bar-bg{background:#F3F4F6;border-radius:3px;height:6px;width:100%;overflow:hidden}
+.cb-m-bar-fill{height:6px;border-radius:3px;transition:width .5s cubic-bezier(.4,0,.2,1)}
 .cb-m-right{text-align:right}
-.cb-m-pct{font-weight:800;font-size:1rem;color:#191F28}
-.cb-m-sub{font-size:.78rem;color:#8B95A1;margin-top:1px}
-.cb-m-metrics{grid-column:1/-1;display:flex;gap:16px;margin-top:6px;padding-top:8px;border-top:1px solid #F2F4F6}
-.cb-m-metrics span{font-size:.75rem;color:#8B95A1;font-weight:500}
-.cb-tag{display:inline-block;font-size:.68rem;padding:1px 8px;border-radius:10px;margin-left:4px;font-weight:600;vertical-align:middle}
-.cb-tag-up{background:#F0FFF4;color:#00C853}
-.cb-tag-down{background:#FFF5F5;color:#F44336}
-.cb-tag-neutral{background:#F2F4F6;color:#8B95A1}
-.cb-adv-card{background:#FFF;border-radius:14px;padding:16px 20px;margin-bottom:6px;box-shadow:0 1px 4px rgba(0,0,0,.03);transition:all .2s ease;display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px 16px}
-.cb-adv-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.06);transform:translateY(-1px)}
-.cb-adv-name{font-weight:700;font-size:.88rem;color:#191F28}
-.cb-adv-brand{font-size:.75rem;color:#8B95A1;font-weight:500;margin-top:1px}
-.cb-adv-ind{font-size:.68rem;color:#F7931D;font-weight:600;background:rgba(247,147,29,.08);padding:1px 8px;border-radius:10px;display:inline-block;margin-top:4px}
+.cb-m-pct{font-weight:600;font-size:1rem;color:#111827;font-feature-settings:"tnum";letter-spacing:-0.015em}
+.cb-m-sub{font-size:.76rem;color:#9CA3AF;margin-top:2px}
+.cb-m-metrics{grid-column:1/-1;display:flex;gap:16px;margin-top:8px;padding-top:10px;border-top:1px solid #F3F4F6}
+.cb-m-metrics span{font-size:.75rem;color:#6B7280;font-weight:500;font-feature-settings:"tnum"}
+
+.cb-tag{display:inline-block;font-size:.70rem;padding:2px 8px;border-radius:5px;margin-left:4px;font-weight:500;vertical-align:middle;letter-spacing:-0.005em}
+.cb-tag-up{background:rgba(16,185,129,.10);color:#10B981}
+.cb-tag-down{background:rgba(239,68,68,.10);color:#EF4444}
+.cb-tag-neutral{background:#F3F4F6;color:#6B7280}
+
+.cb-adv-card{background:#FFF;border:1px solid #E5E7EB;border-radius:10px;padding:14px 18px;margin-bottom:6px;box-shadow:none;transition:border-color .15s ease;display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px 16px}
+.cb-adv-card:hover{border-color:#D1D5DB}
+.cb-adv-name{font-weight:600;font-size:.88rem;color:#111827;letter-spacing:-0.005em}
+.cb-adv-brand{font-size:.74rem;color:#6B7280;font-weight:500;margin-top:2px}
+.cb-adv-ind{font-size:.68rem;color:#F7931D;font-weight:500;background:rgba(247,147,29,.08);padding:2px 8px;border-radius:5px;display:inline-block;margin-top:6px;letter-spacing:-0.005em}
 .cb-adv-stats{text-align:right}
-.cb-adv-ctr{font-weight:800;font-size:1.1rem;color:#191F28}
-.cb-adv-detail{font-size:.72rem;color:#8B95A1;margin-top:2px}
+.cb-adv-ctr{font-weight:600;font-size:1.05rem;color:#111827;font-feature-settings:"tnum";letter-spacing:-0.015em}
+.cb-adv-detail{font-size:.72rem;color:#6B7280;margin-top:3px}
 </style>"""
 
 _compact = compact_num
