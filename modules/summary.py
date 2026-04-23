@@ -8,7 +8,8 @@ import pandas as pd
 from modules.config import (
     kpi_card_html, alert_card_html,
     BRAND_PRIMARY, COLOR_TEXT, COLOR_TEXT_SEC, COLOR_TEXT_TER,
-    COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_SUCCESS, COLOR_DANGER, COLOR_BG,
+    COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_CARD,
+    COLOR_SUCCESS, COLOR_DANGER, COLOR_BG,
     MIN_SENDS_FOR_CTR_CLAIM, CTR_CHANGE_THRESHOLD, compact_num,
 )
 from modules.data_processing import calc_ctr_scalar, media_month_stats
