@@ -180,7 +180,7 @@ def render(df: pd.DataFrame):
     with k4:
         st.markdown(kpi_card_html('최고 CTR', f'{max_ctr:.2f}%'), unsafe_allow_html=True)
 
-    st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
 
     # ── 각 섹션 렌더링 ──
     # 클라이언트면 own_brand 전달해서 타 광고주 문구 익명화
@@ -188,19 +188,19 @@ def render(df: pd.DataFrame):
 
     # 1. 문구 성과 랭킹
     _render_copy_ranking(msg_df, own_brand=_anon_brand)
-    st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
 
     # 2. 문구 패턴 분석 (금액/CTA/이모지/첫 문장 유형별 CTR)
     _render_pattern_analysis(raw_df)
-    st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
 
     # 3. 문구 길이 분석
     _render_length_analysis(raw_df)
-    st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
 
     # 4. 매체별 문구 성과
     _render_media_copy(raw_df, own_brand=_anon_brand)
-    st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
 
     # 5. 인사이트 (내부 관리자만 노출 — 경쟁사 토킹포인트 포함 가능)
     if _role == ROLE_INTERNAL:

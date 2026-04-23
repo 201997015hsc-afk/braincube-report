@@ -321,7 +321,7 @@ def render(df: pd.DataFrame):
     with k4:
         st.markdown(kpi_card_html('유의미한 변화', f'{meaningful}개'), unsafe_allow_html=True)
 
-    st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
 
     # ── 상승/하락 TOP 5 (좌우 2컬럼) ──
     st.markdown(
@@ -364,7 +364,7 @@ def render(df: pd.DataFrame):
             )
             st.plotly_chart(fig_down, use_container_width=True)
 
-    st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
 
     # ── 전월 vs 당월 비교 (전체 매체) ──
     st.markdown(

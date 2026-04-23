@@ -7,6 +7,7 @@ import pandas as pd
 from modules.config import (
     kpi_card_html, insight_card_html, section_header,
     COLOR_DANGER, COLOR_BLUE, COLOR_SUCCESS,
+    COLOR_TEXT, COLOR_TEXT_SEC,
 )
 from modules.data_processing import aggregate_metrics, calc_ctr_scalar, render_ref_period_selector
 from modules.firebase_connector import (
@@ -53,9 +54,9 @@ def render(df: pd.DataFrame):
             cpc_html = (
                 f'<div style="flex:1;background:#F8F9FA;border-radius:12px;padding:10px 16px;'
                 f'display:flex;align-items:center;justify-content:space-between;">'
-                f'<div><span style="font-size:.72rem;color:#8B95A1;font-weight:600;">🔥 업종 평균 CPC</span>'
-                f'<span style="font-weight:800;color:#191F28;margin-left:8px;">{bench["avg_cpc"]:,.0f}원</span>'
-                f'<span style="font-size:.72rem;color:#8B95A1;margin-left:6px;">자사 {client_cpc:,.0f}원 ({cpc_sign}{cpc_diff:.1f}%)</span></div>'
+                f'<div><span style="font-size:.72rem;color:{COLOR_TEXT_SEC};font-weight:600;">🔥 업종 평균 CPC</span>'
+                f'<span style="font-weight:800;color:{COLOR_TEXT};margin-left:8px;">{bench["avg_cpc"]:,.0f}원</span>'
+                f'<span style="font-size:.72rem;color:{COLOR_TEXT_SEC};margin-left:6px;">자사 {client_cpc:,.0f}원 ({cpc_sign}{cpc_diff:.1f}%)</span></div>'
                 f'<div style="background:{cpc_bg};color:{cpc_color};font-size:.72rem;'
                 f'font-weight:700;padding:3px 10px;border-radius:16px;">{cpc_label}</div></div>'
             )
@@ -64,9 +65,9 @@ def render(df: pd.DataFrame):
             f'<div style="display:flex;gap:8px;margin:10px 0 0;">'
             f'<div style="flex:1;background:#F8F9FA;border-radius:12px;padding:10px 16px;'
             f'display:flex;align-items:center;justify-content:space-between;">'
-            f'<div><span style="font-size:.72rem;color:#8B95A1;font-weight:600;">🔥 업종 평균 CTR</span>'
-            f'<span style="font-weight:800;color:#191F28;margin-left:8px;">{bench["avg_ctr"]:.2f}%</span>'
-            f'<span style="font-size:.72rem;color:#8B95A1;margin-left:6px;">자사 {total_ctr:.2f}% ({ctr_sign}{ctr_diff:.2f}%p)</span></div>'
+            f'<div><span style="font-size:.72rem;color:{COLOR_TEXT_SEC};font-weight:600;">🔥 업종 평균 CTR</span>'
+            f'<span style="font-weight:800;color:{COLOR_TEXT};margin-left:8px;">{bench["avg_ctr"]:.2f}%</span>'
+            f'<span style="font-size:.72rem;color:{COLOR_TEXT_SEC};margin-left:6px;">자사 {total_ctr:.2f}% ({ctr_sign}{ctr_diff:.2f}%p)</span></div>'
             f'<div style="background:{ctr_bg};color:{ctr_color};font-size:.72rem;'
             f'font-weight:700;padding:3px 10px;border-radius:16px;">{ctr_label}</div></div>'
             f'{cpc_html}</div>',

@@ -122,7 +122,7 @@ def _render_pattern_analysis(raw_df: pd.DataFrame):
                     f'</div></div>',
                     unsafe_allow_html=True,
                 )
-            st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+            st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
 
     # ── 2. CTA 유형별 성과 ──
     cta_rows = []
@@ -193,7 +193,7 @@ def _render_pattern_analysis(raw_df: pd.DataFrame):
                 f'</div></div>',
                 unsafe_allow_html=True,
             )
-        st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
 
     # ── 3. 이모지/숫자/기호 효과 (2열) ──
     feature_rows = []
@@ -222,7 +222,7 @@ def _render_pattern_analysis(raw_df: pd.DataFrame):
 
     if not feature_rows:
         st.caption('통계적으로 유의한 차이가 감지되지 않았습니다 (이모지/숫자/기호 포함 여부).')
-        st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
     if feature_rows:
         feat_df = pd.DataFrame(feature_rows)
         c1, c2 = st.columns([3, 2])
@@ -281,7 +281,7 @@ def _render_pattern_analysis(raw_df: pd.DataFrame):
                 f'</div>',
                 unsafe_allow_html=True,
             )
-        st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
 
     # ── 4. 첫 문장 유형별 성과 ──
     first_rows = []

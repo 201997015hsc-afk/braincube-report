@@ -9,6 +9,7 @@ from modules.config import (
     section_header, alert_card_html, kpi_card_html,
     CTR_CHANGE_THRESHOLD, VOLUME_CHANGE_THRESHOLD,
     MIN_SAMPLES_PER_CATEGORY, MIN_SENDS_FOR_CTR_CLAIM,
+    COLOR_TEXT_SEC,
 )
 from modules.data_processing import (
     calc_ctr, calc_ctr_scalar, aggregate_by_weekday, media_month_stats,
@@ -285,7 +286,7 @@ def _render_simulator(df: pd.DataFrame):
 
     # BUG B4: 선형 가정에 대한 면책
     st.markdown(
-        '<div style="font-size:0.75rem;color:#8B95A1;margin-top:8px;padding:0 4px;">'
+        '<div style="font-size:0.75rem;color:{COLOR_TEXT_SEC};margin-top:8px;padding:0 4px;">'
         '※ CPC가 일정하다는 가정 (실제는 예산 증액 시 CPC 상승 가능).'
         '</div>',
         unsafe_allow_html=True,

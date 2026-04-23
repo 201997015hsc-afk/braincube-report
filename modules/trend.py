@@ -5,7 +5,10 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-from modules.config import BRAND_PRIMARY, section_header
+from modules.config import (
+    BRAND_PRIMARY, section_header,
+    COLOR_BLUE, COLOR_DANGER, COLOR_SUCCESS, COLOR_TEXT_SEC,
+)
 from modules.data_processing import aggregate_metrics, add_week_columns, MIN_RELIABLE_SENDS
 from modules.charts import bar_chart, dual_axis_bar_line, line_chart
 from modules.insights import detect_trend, render_insights
@@ -18,7 +21,7 @@ def _render_weekly_drilldown(df: pd.DataFrame, month: str):
 
     t1, t2, t3 = st.tabs([f"집행금액 · {month}", "발송량 & 클릭수", "CTR"])
     with t1:
-        st.plotly_chart(bar_chart(w, '주차', '집행금액', "", '#3182F6'), width='stretch')
+        st.plotly_chart(bar_chart(w, '주차', '집행금액', "", '{COLOR_BLUE}'), width='stretch')
     with t2:
         st.plotly_chart(dual_axis_bar_line(w, '주차', '발송량', '클릭수', "발송량", "클릭수"), width='stretch')
     with t3:
@@ -87,7 +90,7 @@ def render(df: pd.DataFrame):
                     line_dash='dot', line_color='#B0B8C1', line_width=1.5,
                     annotation_text=f"업종 평균 {_bench_stats['avg_ctr']:.2f}%",
                     annotation_position='top right',
-                    annotation_font=dict(size=10, color='#8B95A1'),
+                    annotation_font=dict(size=10, color='{COLOR_TEXT_SEC}'),
                 )
                 _overlay_added = True
 
@@ -97,7 +100,7 @@ def render(df: pd.DataFrame):
                     legend=dict(
                         orientation='h', yanchor='bottom', y=1.02,
                         xanchor='right', x=1,
-                        font=dict(size=11, color='#8B95A1'),
+                        font=dict(size=11, color='{COLOR_TEXT_SEC}'),
                     ),
                 )
             events.append(st.plotly_chart(fig3, width='stretch', on_select="rerun"))
@@ -115,7 +118,7 @@ def render(df: pd.DataFrame):
                 if latest_month is not None and latest_month['CTR'] > 0:
                     diff = latest_month['CTR'] - bench_stats['avg_ctr']
                     sign = "+" if diff >= 0 else ""
-                    badge_color = "#2E7D32" if diff >= 0 else "#E53935"
+                    badge_color = "{COLOR_SUCCESS}" if diff >= 0 else "{COLOR_DANGER}"
                     st.caption(
                         f"📊 최근 월 CTR **{latest_month['CTR']:.2f}%** vs "
                         f"업종 평균 **{bench_stats['avg_ctr']:.2f}%** "
