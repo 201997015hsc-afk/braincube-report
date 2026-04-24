@@ -871,9 +871,18 @@ def main():
     _pending_toast = st.session_state.pop('_toast_msg', None)
     if _pending_toast:
         _msg, _kind = _pending_toast
-        # Linear 감성: 알아보기 쉬운 심플 아이콘 (체크/경고/정보)
-        _icon = {'success': '✓', 'warning': '!', 'info': 'i'}.get(_kind, '')
-        st.toast(_msg, icon=_icon)
+        # Streamlit toast는 이모지만 허용 (일반 ASCII 거부). Material icon 형식도 지원.
+        _icon = {
+            'success': ':material/check_circle:',
+            'warning': ':material/warning:',
+            'info':    ':material/info:',
+        }.get(_kind)
+        try:
+            st.toast(_msg, icon=_icon)
+        except Exception:
+            # Material icon 미지원 버전 폴백 — 이모지
+            _fallback = {'success': '✅', 'warning': '⚠️', 'info': 'ℹ️'}.get(_kind, '')
+            st.toast(_msg, icon=_fallback)
 
     # ── Firestore 상태 경고 배너 ──
     # 할당량 초과/연결 실패 시 사용자에게 명확히 알림 (데이터 사라진 것처럼 보이는 혼란 방지)
