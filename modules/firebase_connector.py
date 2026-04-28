@@ -145,20 +145,43 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
     if 'DB' in df.columns:
         df['DB'] = pd.to_numeric(df['DB'], errors='coerce')
 
+    # ── 광고상품 의미론 정리 ──
+    # 광고상품별로 "발송건" 컬럼이 의미하는 게 다름:
+    #   - LMS/MMS/PUSH/실시간/카톡MSG: 실제 메시지 발송 수
+    #   - DA: 노출수(impressions)
+    #   - CPA: 노출수(impressions). 진짜 전환은 DB/요청수량에 있음
+    # 따라서 발송건을 단순 합산하면 메시지 발송 + 노출이 섞여 KPI가 왜곡됨.
+    # 분리:
+    #   df['발송건']  → 메시징 광고만 (DA/CPA는 0)
+    #   df['노출수']  → DA/CPA만 (메시징은 0)
+    if '광고상품' in df.columns:
+        _prod = df['광고상품'].astype(str).str.upper()
+        _is_display = _prod.isin(['DA', 'CPA'])  # 노출 기반 광고
+        _is_cpa = _prod == 'CPA'
+        # 노출수 = DA/CPA 행의 원래 발송건
+        df['노출수'] = np.where(_is_display, df['발송건'], 0)
+        # 발송건 = 메시징 광고만 남김
+        df['발송건'] = np.where(_is_display, 0, df['발송건'])
+    else:
+        df['노출수'] = 0
+        _is_cpa = pd.Series(False, index=df.index)
+
     # ── 광고비 계산 — 광고상품별 과금 방식 분기 ──
     # CPA: 가입당 단가 → 광고비 = 요청수량(=DB,전환수) × 단가
-    #      (발송건은 메시지 발송 수일 뿐 과금 기준 아님)
-    # 그 외 (LMS, MMS, PUSH 등): 발송 기반 과금 → 광고비 = 발송건 × 단가
-    df['금액'] = df['요청수량'] * df['단가']  # 요청 기반 비용 (먼저 계산)
+    # DA: 보통 노출수×단가 또는 클릭수×단가. 데이터에 따라 단가가 0 이거나 별도.
+    #     일단 단가가 0이 아니면 노출수×단가로, 아니면 0.
+    # 그 외 (LMS, MMS 등): 발송 기반 → 광고비 = 발송건 × 단가
+    df['금액'] = df['요청수량'] * df['단가']  # 요청 기반 비용 (참고)
     if '광고상품' in df.columns:
-        _is_cpa = df['광고상품'].astype(str).str.upper() == 'CPA'
-        df['광고비'] = np.where(
-            _is_cpa,
-            df['금액'],                       # CPA: 전환수 × 단가
-            df['발송건'] * df['단가'],        # 기타: 발송건 × 단가
-        )
+        _prod_upper = df['광고상품'].astype(str).str.upper()
+        # 광고비 기본: 발송건 × 단가 (LMS 등 메시징)
+        df['광고비'] = df['발송건'] * df['단가']
+        # CPA: 요청수량 × 단가 (= 금액)
+        df.loc[_prod_upper == 'CPA', '광고비'] = df.loc[_prod_upper == 'CPA', '금액']
+        # DA: 노출수 × 단가 (보통 CPM이지만 단가 0이면 0)
+        _da_mask = _prod_upper == 'DA'
+        df.loc[_da_mask, '광고비'] = df.loc[_da_mask, '노출수'] * df.loc[_da_mask, '단가']
     else:
-        # 안전장치: 광고상품 컬럼이 없으면 기존 공식 유지
         df['광고비'] = df['발송건'] * df['단가']
 
     # ── 날짜 파싱 ("2026-02-04 11:00" → datetime) ──
