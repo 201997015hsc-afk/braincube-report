@@ -114,6 +114,7 @@ _FIELD_MAP = {
     'promo':    '프로모',
     'note':     '비고',
     'seller':   '셀러',
+    'daAdcost': '_DA매출액',  # DA 광고 정액 매출 (별도 보관, 광고비 계산에 사용)
 }
 
 
@@ -145,42 +146,42 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
     if 'DB' in df.columns:
         df['DB'] = pd.to_numeric(df['DB'], errors='coerce')
 
+    # ── 정산수량 계산 — Firebase 대시보드 정의 ──
+    # 정산수량 = 요청수량 - 서비스(차감)
+    # 매출/매입 모두 정산수량 기준으로 계산됨
+    df['정산수량'] = (df['요청수량'].fillna(0) - df['서비스'].fillna(0)).clip(lower=0)
+
     # ── 광고상품 의미론 정리 ──
-    # 광고상품별로 "발송건" 컬럼이 의미하는 게 다름:
+    # 광고상품별 "발송건" 의미가 다름:
     #   - LMS/MMS/PUSH/실시간/카톡MSG: 실제 메시지 발송 수
     #   - DA: 노출수(impressions)
     #   - CPA: 노출수(impressions). 진짜 전환은 DB/요청수량에 있음
-    # 따라서 발송건을 단순 합산하면 메시지 발송 + 노출이 섞여 KPI가 왜곡됨.
-    # 분리:
-    #   df['발송건']  → 메시징 광고만 (DA/CPA는 0)
-    #   df['노출수']  → DA/CPA만 (메시징은 0)
+    # 합산 시 의미가 섞이는 걸 방지하기 위해 별도 컬럼으로 분리:
+    #   df['노출수'] = DA/CPA의 발송건 (= 노출수 의미)
+    #   df['발송건'] = 메시징 광고만 (DA/CPA는 0)
     if '광고상품' in df.columns:
         _prod = df['광고상품'].astype(str).str.upper()
-        _is_display = _prod.isin(['DA', 'CPA'])  # 노출 기반 광고
-        _is_cpa = _prod == 'CPA'
-        # 노출수 = DA/CPA 행의 원래 발송건
+        _is_display = _prod.isin(['DA', 'CPA'])
         df['노출수'] = np.where(_is_display, df['발송건'], 0)
-        # 발송건 = 메시징 광고만 남김
         df['발송건'] = np.where(_is_display, 0, df['발송건'])
     else:
         df['노출수'] = 0
-        _is_cpa = pd.Series(False, index=df.index)
 
-    # ── 광고비 계산 — 광고상품별 과금 방식 분기 ──
-    # CPA: 가입당 단가 → 광고비 = 요청수량(=DB,전환수) × 단가
-    # DA: 보통 노출수×단가 또는 클릭수×단가. 데이터에 따라 단가가 0 이거나 별도.
-    #     일단 단가가 0이 아니면 노출수×단가로, 아니면 0.
-    # 그 외 (LMS, MMS 등): 발송 기반 → 광고비 = 발송건 × 단가
-    df['금액'] = df['요청수량'] * df['단가']  # 요청 기반 비용 (참고)
+    # ── 광고비 (= 매출액) 계산 — Firebase 대시보드 공식 ──
+    # 메시징 (LMS/MMS/PUSH/실시간/카톡MSG): 정산수량 × 단가(sellUnit)
+    # CPA: 정산수량(=요청수량, svc=0) × 단가
+    # DA: _DA매출액(daAdcost) 정액 매출 필드 사용
+    df['금액'] = df['요청수량'] * df['단가']  # 참고용 — 요청 기반 비용
     if '광고상품' in df.columns:
         _prod_upper = df['광고상품'].astype(str).str.upper()
-        # 광고비 기본: 발송건 × 단가 (LMS 등 메시징)
-        df['광고비'] = df['발송건'] * df['단가']
-        # CPA: 요청수량 × 단가 (= 금액)
-        df.loc[_prod_upper == 'CPA', '광고비'] = df.loc[_prod_upper == 'CPA', '금액']
-        # DA: 노출수 × 단가 (보통 CPM이지만 단가 0이면 0)
-        _da_mask = _prod_upper == 'DA'
-        df.loc[_da_mask, '광고비'] = df.loc[_da_mask, '노출수'] * df.loc[_da_mask, '단가']
+        # 기본: 정산수량 × 단가 (LMS/MMS/CPA 모두 적용)
+        df['광고비'] = df['정산수량'] * df['단가']
+        # DA만 별도: daAdcost(_DA매출액) 사용
+        if '_DA매출액' in df.columns:
+            _da_mask = _prod_upper == 'DA'
+            df.loc[_da_mask, '광고비'] = pd.to_numeric(
+                df.loc[_da_mask, '_DA매출액'], errors='coerce'
+            ).fillna(0)
     else:
         df['광고비'] = df['발송건'] * df['단가']
 
@@ -350,13 +351,18 @@ def load_advertiser_data(advertiser_name: str) -> pd.DataFrame | None:
 
     # 표준 분석 컬럼으로 매핑 (lms_app의 REQUIRED_COLS 맞춤)
     # ⚠ rename으로 처리하여 중복 컬럼 방지 (_normalize_columns와 충돌 방지)
+    # ⚠ 발송량 = 정산수량 (Firebase 대시보드 매출 산출 기준과 일치)
     adv_df['날짜'] = adv_df['_date']
     _rename_map = {}
     if '매체' in adv_df.columns:
         _rename_map['매체'] = '매체명'
     if '광고비' in adv_df.columns:
         _rename_map['광고비'] = '집행금액'
-    if '발송건' in adv_df.columns:
+    if '정산수량' in adv_df.columns:
+        # 발송량 = 정산수량 (요청수량 - 서비스). 매출/매입 모두 이 기준
+        _rename_map['정산수량'] = '발송량'
+    elif '발송건' in adv_df.columns:
+        # 폴백 (구버전 호환)
         _rename_map['발송건'] = '발송량'
     if _rename_map:
         adv_df = adv_df.rename(columns=_rename_map)
@@ -372,8 +378,9 @@ def load_advertiser_data(advertiser_name: str) -> pd.DataFrame | None:
 
     # 결측치 제거 (날짜/매체 없는 행)
     adv_df = adv_df.dropna(subset=['날짜', '매체명'])
-    # 발송량 0 제거
-    adv_df = adv_df[adv_df['발송량'] > 0].copy()
+    # 발송량 또는 집행금액이 있는 행만 유지
+    # (DA 정액 광고는 발송량 0이지만 집행금액 있음 → 보존 필요)
+    adv_df = adv_df[(adv_df['발송량'] > 0) | (adv_df['집행금액'] > 0)].copy()
 
     return adv_df if not adv_df.empty else None
 
