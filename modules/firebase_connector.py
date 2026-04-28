@@ -145,9 +145,21 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
     if 'DB' in df.columns:
         df['DB'] = pd.to_numeric(df['DB'], errors='coerce')
 
-    # ── 광고비 계산: actual × sellUnit ──
-    df['광고비'] = df['발송건'] * df['단가']
-    df['금액'] = df['요청수량'] * df['단가']
+    # ── 광고비 계산 — 광고상품별 과금 방식 분기 ──
+    # CPA: 가입당 단가 → 광고비 = 요청수량(=DB,전환수) × 단가
+    #      (발송건은 메시지 발송 수일 뿐 과금 기준 아님)
+    # 그 외 (LMS, MMS, PUSH 등): 발송 기반 과금 → 광고비 = 발송건 × 단가
+    df['금액'] = df['요청수량'] * df['단가']  # 요청 기반 비용 (먼저 계산)
+    if '광고상품' in df.columns:
+        _is_cpa = df['광고상품'].astype(str).str.upper() == 'CPA'
+        df['광고비'] = np.where(
+            _is_cpa,
+            df['금액'],                       # CPA: 전환수 × 단가
+            df['발송건'] * df['단가'],        # 기타: 발송건 × 단가
+        )
+    else:
+        # 안전장치: 광고상품 컬럼이 없으면 기존 공식 유지
+        df['광고비'] = df['발송건'] * df['단가']
 
     # ── 날짜 파싱 ("2026-02-04 11:00" → datetime) ──
     if '일자' in df.columns:
