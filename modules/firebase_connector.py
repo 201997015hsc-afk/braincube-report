@@ -157,15 +157,23 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
     #   - DA: 노출수(impressions)
     #   - CPA: 노출수(impressions). 진짜 전환은 DB/요청수량에 있음
     # 합산 시 의미가 섞이는 걸 방지하기 위해 별도 컬럼으로 분리:
-    #   df['노출수'] = DA/CPA의 발송건 (= 노출수 의미)
-    #   df['발송건'] = 메시징 광고만 (DA/CPA는 0)
+    #   df['노출수']      = DA/CPA의 발송건 (= 노출수 의미)
+    #   df['발송건']      = 메시징 광고만 (DA/CPA는 0)
+    #   df['클릭수']      = 메시징 광고 클릭 (CTR 계산용)
+    #   df['_노출_클릭수'] = DA/CPA의 클릭 (노출 대비 클릭, CTR 별개)
     if '광고상품' in df.columns:
         _prod = df['광고상품'].astype(str).str.upper()
         _is_display = _prod.isin(['DA', 'CPA'])
+        # 발송건 / 노출수 분리
         df['노출수'] = np.where(_is_display, df['발송건'], 0)
         df['발송건'] = np.where(_is_display, 0, df['발송건'])
+        # 클릭수 / 노출_클릭수 분리 — 합산 CTR은 의미 없으므로 메시징만 남김
+        _clicks = pd.to_numeric(df['클릭수'], errors='coerce')
+        df['_노출_클릭수'] = np.where(_is_display, _clicks.fillna(0), 0)
+        df['클릭수'] = np.where(_is_display, np.nan, _clicks)
     else:
         df['노출수'] = 0
+        df['_노출_클릭수'] = 0
 
     # ── 광고비 (= 매출액) 계산 — Firebase 대시보드 공식 ──
     # 메시징 (LMS/MMS/PUSH/실시간/카톡MSG): 정산수량 × 단가(sellUnit)
