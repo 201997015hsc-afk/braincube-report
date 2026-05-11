@@ -394,6 +394,141 @@ def load_advertiser_data(advertiser_name: str) -> pd.DataFrame | None:
 
 
 # ──────────────────────────────────────────────
+# 기회 매체 — 이 광고주가 아직 집행하지 않은 매체 + 타사 레퍼런스
+# ──────────────────────────────────────────────
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_opportunity_media(
+    advertiser_name: str,
+    months_back: int = 6,
+) -> pd.DataFrame | None:
+    """이 광고주가 아직 시도하지 않은 매체 + 타사 집행 레퍼런스.
+
+    Args:
+        advertiser_name: 현재 광고주(브랜드) 이름
+        months_back: 최근 N개월 데이터만 집계 (기본 6개월)
+
+    Returns DataFrame columns:
+        매체명, 광고상품(대표), 동종업계_여부, 광고주수, 동종업계_광고주수,
+        총_캠페인수, 평균_발송량, 평균_클릭수, 평균_CTR, 평균_광고비,
+        대표_광고주(상위 3), 대표_광고주_동종업계(상위 3)
+    """
+    full = load_from_firestore()
+    if full is None or full.empty:
+        return None
+    if '_브랜드' not in full.columns or '매체' not in full.columns:
+        return None
+
+    # 1) 현재 광고주의 업종 파악 (가장 많이 집행한 분야)
+    me_df = full[full['_브랜드'] == advertiser_name]
+    if me_df.empty:
+        return None
+    my_industries = []
+    if '분야' in me_df.columns:
+        _ind_counts = me_df['분야'].dropna().value_counts()
+        my_industries = _ind_counts.index.tolist() if len(_ind_counts) > 0 else []
+    primary_industry = my_industries[0] if my_industries else ''
+
+    # 2) 이 광고주가 이미 집행한 매체 set
+    used_media = set(me_df['매체'].dropna().astype(str).str.strip().unique())
+
+    # 3) 최근 N개월 데이터로 좁히기 (성능 + 신선도)
+    bench = full.copy()
+    if '_date' in bench.columns and months_back > 0:
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        cutoff = _dt.now(_tz.utc) - _td(days=months_back * 31)
+        # _date가 timezone-naive이면 비교 위해 UTC로 캐스팅
+        try:
+            _dates = pd.to_datetime(bench['_date'], errors='coerce', utc=True)
+            bench = bench[_dates >= cutoff]
+        except Exception:
+            pass
+
+    # 4) 현재 광고주가 안 쓴 매체만
+    bench = bench[~bench['매체'].astype(str).str.strip().isin(used_media)].copy()
+    # 자기 자신 행은 한 번 더 제외 (방어적)
+    bench = bench[bench['_브랜드'] != advertiser_name]
+    bench = bench.dropna(subset=['매체'])
+    bench = bench[bench['매체'].astype(str).str.strip() != '']
+    if bench.empty:
+        return pd.DataFrame()
+
+    # 5) 매체별 집계
+    rows = []
+    for media_name, g in bench.groupby(bench['매체'].astype(str).str.strip()):
+        if not media_name:
+            continue
+        n_camp = len(g)
+        n_brands = g['_브랜드'].dropna().nunique()
+
+        # 동종업계 집계
+        if primary_industry and '분야' in g.columns:
+            same_ind = g[g['분야'] == primary_industry]
+        else:
+            same_ind = g.iloc[0:0]
+        n_same_brands = same_ind['_브랜드'].dropna().nunique() if not same_ind.empty else 0
+
+        # 대표 광고상품 (가장 많이 집행된)
+        prod = ''
+        if '광고상품' in g.columns:
+            _pc = g['광고상품'].dropna().value_counts()
+            if len(_pc) > 0:
+                prod = str(_pc.index[0])
+
+        # 평균값들 — 정산수량/광고비/CTR
+        sends = pd.to_numeric(g.get('정산수량', g.get('발송건', 0)), errors='coerce').fillna(0)
+        cost = pd.to_numeric(g.get('광고비', 0), errors='coerce').fillna(0)
+        clicks = pd.to_numeric(g.get('클릭수', 0), errors='coerce')
+
+        avg_sends = float(sends.mean()) if len(sends) > 0 else 0.0
+        avg_cost = float(cost.mean()) if len(cost) > 0 else 0.0
+
+        # CTR: 메시징 광고만 (DA/CPA는 클릭수 NaN이 되도록 _docs_to_dataframe에서 처리됨)
+        _msg_mask = clicks.notna()
+        _msg_sends = sends[_msg_mask]
+        _msg_clicks = clicks[_msg_mask].fillna(0)
+        total_sends = _msg_sends.sum()
+        total_clicks = _msg_clicks.sum()
+        avg_ctr = (total_clicks / total_sends * 100) if total_sends > 0 else 0.0
+        avg_clicks = float(_msg_clicks.mean()) if len(_msg_clicks) > 0 else 0.0
+
+        # 대표 광고주 (상위 3, 캠페인 수 기준)
+        rep_top3 = (
+            g['_브랜드'].dropna().value_counts().head(3).index.tolist()
+        )
+        rep_same_top3 = (
+            same_ind['_브랜드'].dropna().value_counts().head(3).index.tolist()
+            if not same_ind.empty else []
+        )
+
+        rows.append({
+            '매체명': media_name,
+            '광고상품': prod,
+            '동종업계_여부': n_same_brands > 0,
+            '광고주수': int(n_brands),
+            '동종업계_광고주수': int(n_same_brands),
+            '총_캠페인수': int(n_camp),
+            '평균_발송량': avg_sends,
+            '평균_클릭수': avg_clicks,
+            '평균_CTR': avg_ctr,
+            '평균_광고비': avg_cost,
+            '대표_광고주': rep_top3,
+            '대표_광고주_동종업계': rep_same_top3,
+        })
+
+    if not rows:
+        return pd.DataFrame()
+
+    out = pd.DataFrame(rows)
+    # 정렬: 동종업계 광고주 수 > 전체 광고주 수 > 캠페인 수
+    out = out.sort_values(
+        ['동종업계_광고주수', '광고주수', '총_캠페인수'],
+        ascending=[False, False, False],
+    ).reset_index(drop=True)
+    return out
+
+
+# ──────────────────────────────────────────────
 # 벤치마크 분석 헬퍼 (타 모듈 활용)
 # ──────────────────────────────────────────────
 

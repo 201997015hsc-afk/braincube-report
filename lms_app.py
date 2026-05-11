@@ -32,7 +32,7 @@ from modules import (
     kpi, trend, prediction, heatmap, business, summary,
     anomaly, budget_optimizer, budget_simulator, competitor, email_report,
     industry_timing, industry_intel, copy_analysis, monthly_pdf,
-    media_trend,
+    media_trend, opportunity_media,
 )
 
 # ──────────────────────────────────────────────
@@ -66,6 +66,7 @@ _NAV_ITEMS = [
     {"cat": "업종 인사이트", "label": "경쟁사 분석",             "icon": "", "render": competitor.render,      "scope": "client"},
     {"cat": "업종 인사이트", "label": "업종 내 경쟁 인텔리전스", "icon": "", "render": industry_intel.render,  "scope": "client"},
     {"cat": "업종 인사이트", "label": "매체 트렌드",             "icon": "", "render": media_trend.render,     "scope": "client"},
+    {"cat": "업종 인사이트", "label": "기회 매체",               "icon": "", "render": opportunity_media.render, "scope": "client"},
     {"cat": "업종 인사이트", "label": "문구 성과 분석",          "icon": "", "render": copy_analysis.render,   "scope": "client"},
     {"cat": "업종 인사이트", "label": "업종별 최적 발송 타이밍", "icon": "", "render": industry_timing.render, "scope": "client"},
 
