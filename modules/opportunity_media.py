@@ -204,8 +204,63 @@ def render(df: pd.DataFrame):
         ),
     )
 
+    # ── 기간 선택 ──
+    _PERIOD_OPTIONS = {
+        '최근 3개월': 3,
+        '최근 6개월': 6,
+        '최근 12개월': 12,
+        '전체 기간': 0,  # 0 = 시간 필터 없음
+    }
+    col_period, col_filter_placeholder = st.columns([1.2, 1])
+    with col_period:
+        st.markdown(
+            f'<div style="font-size:0.7rem;color:{COLOR_TEXT_SEC};text-transform:uppercase;'
+            f'letter-spacing:0.04em;font-weight:600;margin-bottom:4px;">분석 기간</div>',
+            unsafe_allow_html=True,
+        )
+        period_label = st.radio(
+            '분석 기간',
+            options=list(_PERIOD_OPTIONS.keys()),
+            index=1,  # 기본: 최근 6개월
+            horizontal=True,
+            label_visibility='collapsed',
+            key='opp_media_period',
+        )
+    months_back = _PERIOD_OPTIONS[period_label]
+
+    # 실제 적용된 날짜 범위 계산 (사용자에게 표시용)
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    full_dates = None
+    if full is not None and not full.empty and '_date' in full.columns:
+        try:
+            full_dates = pd.to_datetime(full['_date'], errors='coerce', utc=True).dropna()
+        except Exception:
+            full_dates = None
+
+    if months_back > 0:
+        cutoff = _dt.now(_tz.utc) - _td(days=months_back * 31)
+        if full_dates is not None and not full_dates.empty:
+            actual_start = max(cutoff, full_dates.min())
+            actual_end = full_dates.max()
+        else:
+            actual_start = cutoff
+            actual_end = _dt.now(_tz.utc)
+        period_caption = f'{actual_start:%Y-%m-%d} ~ {actual_end:%Y-%m-%d}'
+    else:
+        if full_dates is not None and not full_dates.empty:
+            period_caption = f'{full_dates.min():%Y-%m-%d} ~ {full_dates.max():%Y-%m-%d} (전체)'
+        else:
+            period_caption = '전체 기간'
+
+    with col_filter_placeholder:
+        st.markdown(
+            f'<div style="text-align:right;font-size:0.75rem;color:{COLOR_TEXT_SEC};'
+            f'padding-top:24px;">{esc_html_safe(period_caption)}</div>',
+            unsafe_allow_html=True,
+        )
+
     # 로드
-    opp = load_opportunity_media(adv_name, months_back=6)
+    opp = load_opportunity_media(adv_name, months_back=months_back)
     if opp is None:
         render_empty_state(
             'Firebase 데이터를 불러올 수 없습니다',
@@ -216,33 +271,30 @@ def render(df: pd.DataFrame):
     if opp.empty:
         render_empty_state(
             '미집행 매체가 없습니다',
-            f'{esc_html_safe(adv_name)}은(는) 최근 6개월 기준 Firebase에 등록된 모든 매체를 이미 집행했어요. 🎉',
+            f'{esc_html_safe(adv_name)}은(는) {period_label} 기준 Firebase에 등록된 모든 매체를 이미 집행했어요. 🎉',
             icon='✨',
         )
         return
 
-    # ── 필터 옵션 ──
+    # ── 보기 필터 ──
     same_ind_count = int(opp['동종업계_여부'].sum())
     total_count = len(opp)
     options = [f'전체 ({total_count}개)']
     if industry and same_ind_count > 0:
         options.insert(0, f'{industry} 집행한 매체만 ({same_ind_count}개)')
 
-    col_filter, col_meta = st.columns([2, 1])
-    with col_filter:
-        sel = st.radio(
-            '보기 필터',
-            options=options,
-            horizontal=True,
-            label_visibility='collapsed',
-            key='opp_media_filter',
-        )
-    with col_meta:
-        st.markdown(
-            f'<div style="text-align:right;font-size:0.78rem;color:{COLOR_TEXT_SEC};'
-            f'padding-top:6px;">최근 6개월 · 동종업계 우선 정렬</div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown(
+        f'<div style="font-size:0.7rem;color:{COLOR_TEXT_SEC};text-transform:uppercase;'
+        f'letter-spacing:0.04em;font-weight:600;margin-top:14px;margin-bottom:4px;">보기 필터</div>',
+        unsafe_allow_html=True,
+    )
+    sel = st.radio(
+        '보기 필터',
+        options=options,
+        horizontal=True,
+        label_visibility='collapsed',
+        key='opp_media_filter',
+    )
 
     # 필터 적용
     view = opp.copy()
