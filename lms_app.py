@@ -33,6 +33,7 @@ from modules import (
     anomaly, budget_optimizer, budget_simulator, competitor, email_report,
     industry_timing, industry_intel, copy_analysis, monthly_pdf,
     media_trend, opportunity_media, overview, media_overview, industry_overview,
+    global_filter,
 )
 
 # ──────────────────────────────────────────────
@@ -1164,10 +1165,17 @@ def main():
             "<br>".join(f"• {w}" for w in warnings),
         ), unsafe_allow_html=True)
 
+    # ── 글로벌 필터 바 (매체 / 광고상품) ──
+    # 페이지 이동해도 세션 상태로 유지. 빈 필터 = 전체.
+    df_filtered = global_filter.render_filter_bar(df)
+    if df_filtered is None or df_filtered.empty:
+        st.warning("선택한 필터에 해당하는 데이터가 없습니다. 위의 '모든 필터 해제'를 눌러 주세요.")
+        return
+
     # ── 선택된 페이지 렌더링 (탭 1개면 직접, 2+개면 st.tabs로) ──
     _active = _find_nav_item(nav_items, nav_choice)
     if _active is not None:
-        _render_nav_page(_active, df)
+        _render_nav_page(_active, df_filtered)
 
 
 if __name__ == "__main__":
