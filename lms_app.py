@@ -32,7 +32,7 @@ from modules import (
     kpi, trend, prediction, heatmap, business, summary,
     anomaly, budget_optimizer, budget_simulator, competitor, email_report,
     industry_timing, industry_intel, copy_analysis, monthly_pdf,
-    media_trend, opportunity_media,
+    media_trend, opportunity_media, overview,
 )
 
 # ──────────────────────────────────────────────
@@ -65,8 +65,9 @@ _NAV_ITEMS = [
     {
         "cat": "분석", "label": "한눈에 보기", "icon": "",
         "tabs": [
-            {"label": "월간 요약",       "render": summary.render, "scope": "client"},
-            {"label": "KPI · 인사이트",  "render": kpi.render,     "scope": "client"},
+            {"label": "개요",            "render": overview.render, "scope": "client"},
+            {"label": "월간 요약",       "render": summary.render,  "scope": "client"},
+            {"label": "KPI · 인사이트",  "render": kpi.render,      "scope": "client"},
         ],
     },
     {
