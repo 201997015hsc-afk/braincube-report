@@ -36,17 +36,21 @@ from modules import (
 )
 
 # ──────────────────────────────────────────────
-# 섹션 네비게이션 정의 (Linear/Notion 스타일 — 플랫 리스트 + 카테고리)
+# 섹션 네비게이션 정의 (Linear/Notion 스타일 — 6 페이지 통폐합)
 # ──────────────────────────────────────────────
-# 각 아이템: {"cat": 카테고리, "label": 표시 이름, "icon": 기하학 아이콘,
-#            "render": 렌더 함수, "scope": "client"|"internal"}
+# 각 페이지: {"cat": 카테고리, "label": 페이지명, "icon": ...,
+#            "tabs": [{"label": ..., "render": ..., "scope": "client"|"internal"}, ...],
+#            "scope": 페이지 노출 scope (기본 "client" — 탭이 하나라도 client면 client에 보임)}
+#
+# 동작:
+#   - 탭이 1개면 탭 UI 없이 직접 렌더 (단일 페이지 모드)
+#   - 탭이 2+개면 st.tabs로 묶음
+#   - 사용자 role에 따라 탭 자동 필터링 (admin 탭은 internal role만 노출)
 
 # 카테고리별 CSS 도트 클래스 (이모지 아님 — CSS에서 색·크기 제어)
 _NAV_CAT_CLASS = {
-    "성과 분석":     "cat-perf",
-    "업종 인사이트": "cat-ind",
-    "액션":         "cat-act",
-    "내부 도구":     "cat-admin",
+    "분석":  "cat-perf",   # 파랑 — 데이터/인사이트 탐색
+    "운영":  "cat-act",    # 초록 — 액션/의사결정/내보내기
 }
 
 
@@ -57,40 +61,76 @@ def _dot(cat: str) -> str:
 
 
 _NAV_ITEMS = [
-    # ── 성과 분석 (파랑) ──
-    {"cat": "성과 분석", "label": "월간 요약",      "icon": "", "render": summary.render, "scope": "client"},
-    {"cat": "성과 분석", "label": "KPI 및 인사이트", "icon": "", "render": kpi.render,     "scope": "client"},
-    {"cat": "성과 분석", "label": "트렌드 분석",    "icon": "", "render": trend.render,   "scope": "client"},
+    # ══════════ 분석 ══════════
+    {
+        "cat": "분석", "label": "한눈에 보기", "icon": "",
+        "tabs": [
+            {"label": "월간 요약",       "render": summary.render, "scope": "client"},
+            {"label": "KPI · 인사이트",  "render": kpi.render,     "scope": "client"},
+        ],
+    },
+    {
+        "cat": "분석", "label": "매체 성과", "icon": "",
+        "tabs": [
+            {"label": "트렌드",       "render": trend.render,       "scope": "client"},
+            {"label": "매체 히트맵",  "render": heatmap.render,     "scope": "client"},
+            {"label": "매체 트렌드",  "render": media_trend.render, "scope": "client"},
+        ],
+    },
+    {
+        "cat": "분석", "label": "업종 · 경쟁", "icon": "",
+        "tabs": [
+            {"label": "경쟁사 분석",   "render": competitor.render,        "scope": "client"},
+            {"label": "업종 인텔리전스", "render": industry_intel.render,    "scope": "client"},
+            {"label": "기회 매체",     "render": opportunity_media.render, "scope": "client"},
+        ],
+    },
 
-    # ── 업종 인사이트 (오렌지) ──
-    {"cat": "업종 인사이트", "label": "경쟁사 분석",             "icon": "", "render": competitor.render,      "scope": "client"},
-    {"cat": "업종 인사이트", "label": "업종 내 경쟁 인텔리전스", "icon": "", "render": industry_intel.render,  "scope": "client"},
-    {"cat": "업종 인사이트", "label": "매체 트렌드",             "icon": "", "render": media_trend.render,     "scope": "client"},
-    {"cat": "업종 인사이트", "label": "기회 매체",               "icon": "", "render": opportunity_media.render, "scope": "client"},
-    {"cat": "업종 인사이트", "label": "문구 성과 분석",          "icon": "", "render": copy_analysis.render,   "scope": "client"},
-    {"cat": "업종 인사이트", "label": "업종별 최적 발송 타이밍", "icon": "", "render": industry_timing.render, "scope": "client"},
-
-    # ── 액션 (초록) ──
-    {"cat": "액션", "label": "전략 제안",       "icon": "", "render": business.render,    "scope": "client"},
-    {"cat": "액션", "label": "매체 히트맵",     "icon": "", "render": heatmap.render,     "scope": "client"},
-    {"cat": "액션", "label": "월간 PDF 리포트", "icon": "", "render": monthly_pdf.render, "scope": "client"},
-
-    # ── 내부 도구 (어두운 회색) — 관리자 전용 ──
-    {"cat": "내부 도구", "label": "이상치 감지",         "icon": "", "render": anomaly.render,         "scope": "internal"},
-    {"cat": "내부 도구", "label": "클릭 예측",           "icon": "", "render": prediction.render,      "scope": "internal"},
-    {"cat": "내부 도구", "label": "예산 최적 배분",       "icon": "", "render": budget_optimizer.render, "scope": "internal"},
-    {"cat": "내부 도구", "label": "예산 증액 시뮬레이터", "icon": "", "render": budget_simulator.render, "scope": "internal"},
-    {"cat": "내부 도구", "label": "상세 히트맵",         "icon": "", "render": heatmap.render,         "scope": "internal"},
-    {"cat": "내부 도구", "label": "이메일 발송",          "icon": "", "render": email_report.render,    "scope": "internal"},
+    # ══════════ 운영 ══════════
+    {
+        "cat": "운영", "label": "카피 · 타이밍", "icon": "",
+        "tabs": [
+            {"label": "문구 성과",   "render": copy_analysis.render,   "scope": "client"},
+            {"label": "발송 타이밍", "render": industry_timing.render, "scope": "client"},
+        ],
+    },
+    {
+        "cat": "운영", "label": "의사결정 도구", "icon": "",
+        "tabs": [
+            {"label": "전략 제안",         "render": business.render,         "scope": "client"},
+            {"label": "예산 최적 배분",     "render": budget_optimizer.render, "scope": "internal"},
+            {"label": "예산 시뮬레이터",   "render": budget_simulator.render, "scope": "internal"},
+            {"label": "클릭 예측",         "render": prediction.render,       "scope": "internal"},
+            {"label": "이상치 감지",       "render": anomaly.render,          "scope": "internal"},
+        ],
+    },
+    {
+        "cat": "운영", "label": "보고서 · 내보내기", "icon": "",
+        "tabs": [
+            {"label": "월간 PDF 리포트", "render": monthly_pdf.render,  "scope": "client"},
+            {"label": "이메일 발송",     "render": email_report.render, "scope": "internal"},
+            {"label": "상세 히트맵",     "render": heatmap.render,      "scope": "internal"},
+        ],
+    },
 ]
 
 
-def _build_nav(role: str):
-    """역할에 따라 네비게이션 아이템 반환 (flat list)."""
+def _filter_tabs_by_role(tabs: list[dict], role: str) -> list[dict]:
+    """role에 따라 접근 가능한 탭만 필터링."""
     if role == ROLE_INTERNAL:
-        items = list(_NAV_ITEMS)
-    else:
-        items = [i for i in _NAV_ITEMS if i["scope"] == "client"]
+        return list(tabs)
+    return [t for t in tabs if t.get("scope", "client") == "client"]
+
+
+def _build_nav(role: str):
+    """역할에 따라 네비게이션 아이템 반환.
+    각 페이지의 탭도 role 기반 필터링 후, 접근 가능한 탭이 0개인 페이지는 숨김."""
+    items = []
+    for it in _NAV_ITEMS:
+        visible_tabs = _filter_tabs_by_role(it.get("tabs", []), role)
+        if not visible_tabs:
+            continue  # 접근 가능한 탭이 없으면 페이지 자체를 숨김
+        items.append({**it, "tabs": visible_tabs})
     return items
 
 
@@ -126,6 +166,25 @@ def _run_section(name: str, render_fn, df):
         import traceback
         with st.expander("상세 오류 정보", expanded=False):
             st.code(traceback.format_exc())
+
+
+def _render_nav_page(nav_item: dict, df):
+    """페이지 렌더링: 탭 1개면 직접, 2+개면 st.tabs.
+    탭별 오류는 _run_section으로 격리."""
+    tabs = nav_item.get("tabs", [])
+    if not tabs:
+        st.warning("표시할 콘텐츠가 없습니다.")
+        return
+    if len(tabs) == 1:
+        t = tabs[0]
+        _run_section(t["label"], t["render"], df)
+        return
+    # 멀티 탭
+    tab_labels = [t["label"] for t in tabs]
+    tab_containers = st.tabs(tab_labels)
+    for container, tab_def in zip(tab_containers, tabs):
+        with container:
+            _run_section(tab_def["label"], tab_def["render"], df)
 
 
 # ──────────────────────────────────────────────
@@ -1102,10 +1161,10 @@ def main():
             "<br>".join(f"• {w}" for w in warnings),
         ), unsafe_allow_html=True)
 
-    # ── 선택된 섹션만 렌더링 (Linear 스타일: 단일 페이지) ──
+    # ── 선택된 페이지 렌더링 (탭 1개면 직접, 2+개면 st.tabs로) ──
     _active = _find_nav_item(nav_items, nav_choice)
     if _active is not None:
-        _run_section(_active["label"], _active["render"], df)
+        _render_nav_page(_active, df)
 
 
 if __name__ == "__main__":
