@@ -32,7 +32,7 @@ from modules import (
     kpi, trend, prediction, heatmap, business, summary,
     anomaly, budget_optimizer, budget_simulator, competitor, email_report,
     industry_timing, industry_intel, copy_analysis, monthly_pdf,
-    media_trend, opportunity_media, overview,
+    media_trend, opportunity_media, overview, media_overview,
 )
 
 # ──────────────────────────────────────────────
@@ -73,9 +73,10 @@ _NAV_ITEMS = [
     {
         "cat": "분석", "label": "매체 성과", "icon": "",
         "tabs": [
-            {"label": "트렌드",       "render": trend.render,       "scope": "client"},
-            {"label": "매체 히트맵",  "render": heatmap.render,     "scope": "client"},
-            {"label": "매체 트렌드",  "render": media_trend.render, "scope": "client"},
+            {"label": "개요",         "render": media_overview.render, "scope": "client"},
+            {"label": "트렌드",       "render": trend.render,          "scope": "client"},
+            {"label": "매체 히트맵",  "render": heatmap.render,        "scope": "client"},
+            {"label": "매체 트렌드",  "render": media_trend.render,    "scope": "client"},
         ],
     },
     {
