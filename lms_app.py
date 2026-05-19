@@ -33,8 +33,9 @@ from modules import (
     anomaly, budget_optimizer, budget_simulator, competitor, email_report,
     industry_timing, industry_intel, copy_analysis, monthly_pdf,
     media_trend, opportunity_media, overview, media_overview, industry_overview,
-    global_filter,
+    global_filter, targeting_analysis,
 )
+# copy_analysis는 네비에서 제외 (모듈은 보존 — 추후 NLP 카피 분석 참고용)
 
 # ──────────────────────────────────────────────
 # 섹션 네비게이션 정의 (Linear/Notion 스타일 — 6 페이지 통폐합)
@@ -92,10 +93,10 @@ _NAV_ITEMS = [
 
     # ══════════ 운영 ══════════
     {
-        "cat": "운영", "label": "카피 · 타이밍", "icon": "",
+        "cat": "운영", "label": "타겟팅 · 타이밍", "icon": "",
         "tabs": [
-            {"label": "문구 성과",   "render": copy_analysis.render,   "scope": "client"},
-            {"label": "발송 타이밍", "render": industry_timing.render, "scope": "client"},
+            {"label": "타겟팅 분석", "render": targeting_analysis.render, "scope": "client"},
+            {"label": "발송 타이밍", "render": industry_timing.render,    "scope": "client"},
         ],
     },
     {
