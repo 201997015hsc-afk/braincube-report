@@ -256,9 +256,9 @@ def _migrate_local_profiles_to_firestore(db) -> bool:
 # 캐시된 프로필 로더 (Firestore 비용 절감)
 # ──────────────────────────────────────────────
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _load_all_profiles_cached() -> dict:
-    """전체 클라이언트 프로필 로드 (10분 캐시).
+    """전체 클라이언트 프로필 로드 (30분 캐시 — Firestore 할당량 절감).
 
     우선순위:
       1. Firestore (`client_profiles` 컬렉션)

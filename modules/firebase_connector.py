@@ -244,7 +244,7 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
 # 캐시된 데이터 로더 (Public API)
 # ──────────────────────────────────────────────
 
-@st.cache_data(ttl=300, show_spinner="Firebase에서 데이터 로딩 중...")
+@st.cache_data(ttl=1800, show_spinner="Firebase에서 데이터 로딩 중...")
 def load_from_firestore() -> pd.DataFrame | None:
     """Firestore campaigns 컬렉션 전체 → DataFrame (5분 캐시)
 
@@ -276,7 +276,7 @@ def load_benchmark() -> pd.DataFrame | None:
     return load_from_firestore()
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_latest_data_timestamp():
     """벤치마크 데이터의 가장 최근 일자(datetime 객체) 반환. 실패 시 None.
 
@@ -305,7 +305,7 @@ def get_latest_data_timestamp():
 # 광고주별 데이터 조회 (클라이언트 리포트용)
 # ──────────────────────────────────────────────
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def list_advertisers() -> list[dict]:
     """
     Firebase에 등록된 전체 브랜드(실 광고주) 목록 반환 (5분 캐시).
@@ -337,7 +337,7 @@ def list_advertisers() -> list[dict]:
     return brands
 
 
-@st.cache_data(ttl=300, show_spinner="광고주 데이터 로딩 중...")
+@st.cache_data(ttl=1800, show_spinner="광고주 데이터 로딩 중...")
 def load_advertiser_data(advertiser_name: str) -> pd.DataFrame | None:
     """
     특정 브랜드(실 광고주)의 전체 데이터 반환 (5분 캐시).
@@ -397,7 +397,7 @@ def load_advertiser_data(advertiser_name: str) -> pd.DataFrame | None:
 # 기회 매체 — 이 광고주가 아직 집행하지 않은 매체 + 타사 레퍼런스
 # ──────────────────────────────────────────────
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def load_opportunity_media(
     advertiser_name: str,
     months_back: int = 6,
@@ -532,7 +532,7 @@ def load_opportunity_media(
 # 벤치마크 분석 헬퍼 (타 모듈 활용)
 # ──────────────────────────────────────────────
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_benchmark_stats(industry: str = None) -> dict | None:
     """업종별 벤치마크 통계 요약 반환
 
@@ -604,7 +604,7 @@ def percentile_letter(pct: float) -> str:
         return "D"
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_benchmark_monthly(industry: str = None) -> pd.DataFrame | None:
     """업종 월별 벤치마크 트렌드 (CTR, CPC).
 
@@ -642,7 +642,7 @@ def get_benchmark_monthly(industry: str = None) -> pd.DataFrame | None:
     return monthly.sort_values('년월').reset_index(drop=True)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def get_benchmark_weekday(industry: str = None) -> pd.DataFrame | None:
     """업종 요일별 벤치마크 (CTR 기준)"""
     df = load_from_firestore()
@@ -697,9 +697,9 @@ def get_data_source() -> str:
 # ──────────────────────────────────────────────
 # ⚠ 반환값은 UI에 직접 노출하지 말 것 — 클릭수/발송량 등 파생 결과만 표시.
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _build_price_table() -> pd.DataFrame | None:
-    """매체 × 광고상품 × 업종별 판매단가 중앙값 테이블 (10분 캐시)."""
+    """매체 × 광고상품 × 업종별 판매단가 중앙값 테이블 (30분 캐시)."""
     df = load_from_firestore()
     if df is None or df.empty or '단가' not in df.columns:
         return None

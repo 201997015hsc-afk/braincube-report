@@ -171,10 +171,10 @@ def _migrate_from_local_users_json(db) -> bool:
 # Public: 사용자 로드 / 저장 (캐싱 적용)
 # ──────────────────────────────────────────────
 
-# Firestore 접근 비용 절감을 위해 10분 캐시 (할당량 이슈 대응)
-@st.cache_data(ttl=600, show_spinner=False)
+# Firestore 접근 비용 절감을 위해 30분 캐시 (할당량 이슈 대응 — 1일 5만회 제한)
+@st.cache_data(ttl=1800, show_spinner=False)
 def _load_users_cached() -> dict:
-    """Firestore에서 전체 사용자 로드 (10분 캐시).
+    """Firestore에서 전체 사용자 로드 (30분 캐시).
 
     우선순위:
       1. Firestore (`app_users` 컬렉션)
