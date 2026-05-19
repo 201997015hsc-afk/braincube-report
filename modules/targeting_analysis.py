@@ -55,21 +55,36 @@ def _summary_card(title: str, value: str, sub: str, *, color: str = None) -> str
     )
 
 
-def _format_target_text(text: str, max_lines: int = 4) -> str:
-    """타겟 텍스트를 화면에 맞게 정리 — 줄바꿈 보존, max_lines로 제한."""
+def _format_target_text(text: str, *, max_lines: int | None = None) -> str:
+    """타겟 텍스트 정리 — 전체 줄 표시 (축약 없음), 줄바꿈 보존.
+    제외 조건('제외' 포함 줄)은 빨간색으로 강조.
+    """
     if not text or pd.isna(text):
         return '<span style="color:#9CA3AF;">타겟 정보 없음</span>'
     lines = str(text).strip().split('\n')
-    # 너무 긴 줄은 자르기
     cleaned = []
-    for line in lines[:max_lines]:
-        line = line.strip()
-        if len(line) > 80:
-            line = line[:80] + '…'
-        if line:
-            cleaned.append(esc_html_safe(line))
-    if len(lines) > max_lines:
-        cleaned.append(f'<span style="color:{COLOR_TEXT_TER};">… 외 {len(lines) - max_lines}줄</span>')
+    for line in lines:
+        line = line.rstrip()
+        if not line:
+            continue
+        # 제외 조건 = 디타겟팅 → 빨간 강조
+        is_exclusion = '제외' in line or '미사용' in line or '미가입' in line
+        escaped = esc_html_safe(line)
+        if is_exclusion:
+            cleaned.append(
+                f'<span style="color:{COLOR_DANGER};font-weight:600;">'
+                f'<span style="background:#FFF0EF;padding:1px 6px;border-radius:4px;'
+                f'border:1px solid #FECACA;font-size:0.66rem;margin-right:6px;'
+                f'text-transform:uppercase;letter-spacing:0.02em;">제외</span>'
+                f'{escaped}</span>'
+            )
+        else:
+            cleaned.append(escaped)
+    # max_lines가 명시되면 그때만 잘라낸다 (기본은 전체)
+    if max_lines is not None and len(cleaned) > max_lines:
+        cleaned = cleaned[:max_lines] + [
+            f'<span style="color:{COLOR_TEXT_TER};">… 외 {len(lines) - max_lines}줄</span>'
+        ]
     return '<br>'.join(cleaned)
 
 
@@ -318,8 +333,7 @@ def render(df: pd.DataFrame):
 
                     st.markdown(
                         f'<div style="border:1px solid {COLOR_BORDER};border-left:3px solid {ctr_color};'
-                        f'border-radius:8px;padding:12px 14px;background:{COLOR_CARD};margin-bottom:8px;'
-                        f'height:160px;overflow:hidden;">'
+                        f'border-radius:8px;padding:12px 14px;background:{COLOR_CARD};margin-bottom:8px;">'
                         f'  <div style="display:flex;justify-content:space-between;align-items:flex-start;'
                         f'margin-bottom:6px;">'
                         f'    <div style="font-size:0.85rem;color:{COLOR_TEXT};font-weight:700;'
@@ -333,8 +347,8 @@ def render(df: pd.DataFrame):
                         f'  </div>'
                         f'  <div style="font-size:0.72rem;color:{COLOR_TEXT_SEC};line-height:1.5;'
                         f'background:{COLOR_BG};padding:8px 10px;border-radius:6px;'
-                        f'max-height:90px;overflow:hidden;">'
-                        f'{_format_target_text(target, max_lines=3)}'
+                        f'white-space:normal;">'
+                        f'{_format_target_text(target)}'
                         f'</div>'
                         f'</div>',
                         unsafe_allow_html=True,
@@ -421,8 +435,13 @@ def render(df: pd.DataFrame):
         f'<div style="border:1px solid {COLOR_BORDER_SUBTLE};border-radius:8px;'
         f'padding:10px 14px;background:{COLOR_BG};font-size:0.72rem;color:{COLOR_TEXT_SEC};'
         f'line-height:1.55;">'
-        f'💡 키워드 분류 없이 실제 타겟 설정을 그대로 보여드립니다 — 패턴은 직접 발견하시는 게 가장 정확해요. '
-        f'검색창에 "1년내", "수발신", "30대" 등을 입력해 비슷한 타겟끼리 비교해보세요.'
+        f'💡 키워드 분류 없이 실제 타겟 설정을 그대로 보여드립니다. '
+        f'<span style="color:{COLOR_DANGER};font-weight:600;">'
+        f'<span style="background:#FFF0EF;padding:1px 6px;border-radius:4px;'
+        f'border:1px solid #FECACA;font-size:0.62rem;margin:0 3px;'
+        f'text-transform:uppercase;letter-spacing:0.02em;">제외</span></span> '
+        f'배지는 디타겟팅 조건(제외/미사용/미가입)을 표시합니다. '
+        f'검색창에 "1년내", "수발신", "제외" 등을 입력해 비슷한 타겟끼리 비교해보세요.'
         f'</div>',
         unsafe_allow_html=True,
     )
