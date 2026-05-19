@@ -7,16 +7,19 @@
 답하는 질문:
   - 어떤 타겟 설정이 가장 잘 터졌나? (베스트 캠페인 Top 10)
   - 특정 매체에서 어떤 타겟이 효과적인가? (매체별 베스트)
+  - 통신사·카드사별로 어떤 타겟을 새로 만들면 좋을까? (자동 추천)
   - 우리 캠페인 중 검색하고 싶은 게 있나? (전체 테이블)
 
 설계 원칙:
   - 원문 데이터 그대로 노출 (추상적 분류 X)
   - 베스트 카드는 시각적 (큰 CTR 숫자 + 타겟 원문)
-  - 전체 테이블은 검색·정렬 가능
+  - 추천 타겟은 운영팀이 복사해 바로 쓸 수 있는 텍스트로
 """
+import re
 import streamlit as st
 import pandas as pd
 import numpy as np
+from collections import Counter
 
 from modules.config import (
     COLOR_TEXT, COLOR_TEXT_SEC, COLOR_TEXT_TER, COLOR_BORDER, COLOR_BORDER_SUBTLE,
@@ -24,6 +27,198 @@ from modules.config import (
     BRAND_PRIMARY, compact_num, MIN_SENDS_FOR_CTR_CLAIM,
 )
 from modules.ui_helpers import render_page_header, render_empty_state, esc_html_safe
+
+
+# ──────────────────────────────────────────────
+# 매체 카테고리 분류 (추천 엔진용)
+# ──────────────────────────────────────────────
+_CARD_KEYWORDS = [
+    '카드', 'KB', '신한', '국민', '삼성카드', '현대카드', '롯데카드',
+    'BC', '하나카드', 'NH', '우리카드', '비씨', '농협', '카카오뱅크',
+]
+_TELECOM_KEYWORDS = [
+    'KT', 'SKT', 'SK텔레콤', 'LG U', 'LGU', '알뜰', '비즈챗', 'TMAP', 'T MAP',
+]
+
+
+def _classify_for_recommend(media_name: str) -> str:
+    """매체명 → '통신사'/'카드사'/'플랫폼·기타'.
+    카드 먼저 매칭 (KT가 롯데카드 같은 곳에 잘못 잡히지 않게).
+    """
+    if not media_name:
+        return '플랫폼·기타'
+    s = str(media_name).upper()
+    for kw in _CARD_KEYWORDS:
+        if kw.upper() in s:
+            return '카드사'
+    for kw in _TELECOM_KEYWORDS:
+        if kw.upper() in s:
+            return '통신사'
+    return '플랫폼·기타'
+
+
+# ──────────────────────────────────────────────
+# 추천 엔진 — 베스트 캠페인 타겟 텍스트에서 공통 패턴 추출
+# ──────────────────────────────────────────────
+def _strip_prefix(line: str) -> str:
+    """앞쪽 번호·기호 prefix만 제거. 본문 숫자는 보존.
+
+    제거 대상:
+      - "1. X", "1) X", "1: X"  (숫자 + 구두점 + 공백)
+      - "* X", "- X", "ㄴ X", "▶ X", "> X", "• X"  (기호 + 공백)
+    제거 안 함:
+      - "24-25년..."  (본문 시작 숫자)
+    """
+    line = line.strip()
+    # 번호 prefix
+    line = re.sub(r'^\s*\d+\s*[\.\)\:]\s+', '', line)
+    # 기호 prefix
+    line = re.sub(r'^\s*[\*\-ㄴ▶▷>•]\s+', '', line)
+    return line.strip()
+
+
+def _normalize_for_grouping(line: str) -> str:
+    """그룹핑(빈도 카운팅)용 정규화 — 연도/날짜를 와일드카드로 치환.
+    표시할 때는 원본 라인 사용."""
+    norm = re.sub(r'\b\d{2,4}\s*년', '[연도]', line)
+    norm = re.sub(r'\b\d{1,2}\s*월', '[월]', norm)
+    norm = re.sub(r'\s+', ' ', norm).strip()
+    return norm
+
+
+def _is_exclusion_line(raw: str) -> bool:
+    """라인이 명백히 제외 조건인지 — 단순 단어 포함보다 엄격."""
+    s = raw.strip()
+    # 빈 라인
+    if not s:
+        return False
+    # 명백한 패턴: '* X 제외', '- X 제외', 'ㄴ X 제외', '제외:' 시작
+    if re.search(r'(?:^|\s)(?:\*|\-|ㄴ)\s*.{2,}\s*제외', s):
+        return True
+    # 라인 끝이 '제외' 또는 '제외함' / '제외함니다' 등
+    if re.search(r'제외(?:함|합니다|\.|$|\))', s.rstrip()):
+        return True
+    # '디타겟팅' 키워드
+    if '디타겟팅' in s or '미사용자' in s or '미가입자' in s:
+        return True
+    return False
+
+
+def _recommend_targeting(qualified: pd.DataFrame, category: str) -> dict | None:
+    """카테고리(통신사/카드사)별 베스트 캠페인에서 추천 타겟 추출.
+
+    Returns dict with:
+      n_base: 베스트 캠페인 수
+      avg_ctr / min_ctr / max_ctr
+      common_includes: [(line, count), ...]  자주 등장하는 포함 조건
+      common_excludes: [(line, count), ...]  자주 등장하는 제외 조건
+      age_range: (min, max) 권장 연령
+      gender: 권장 성별
+      recommended_text: 복사용 추천 타겟 텍스트
+    """
+    sub = qualified[qualified['_recommend_cat'] == category].copy()
+    if len(sub) < 5:
+        return None
+
+    # 상위 30% (또는 평균의 1.5배 이상)
+    threshold = max(sub['CTR_calc'].quantile(0.7), sub['CTR_calc'].mean() * 1.0)
+    top = sub[sub['CTR_calc'] >= threshold].copy()
+    if len(top) < 3:
+        return None
+
+    # (정규화 키 → 대표 원본 라인) 매핑으로 빈도 카운팅
+    # 표시할 때는 원본 라인 그대로 사용 (정규화로 인한 텍스트 손실 방지)
+    include_norm_to_rep: dict[str, str] = {}
+    include_counter: Counter = Counter()
+    exclude_norm_to_rep: dict[str, str] = {}
+    exclude_counter: Counter = Counter()
+    age_ranges = []
+    genders = []
+
+    for tgt in top['타겟'].astype(str):
+        # 연령 추출
+        for m in re.finditer(r'(\d{2})\s*[-~]\s*(\d{2})\s*세', tgt):
+            age_ranges.append((int(m.group(1)), int(m.group(2))))
+        # 성별 추출 (캠페인 단위 한 번만)
+        if re.search(r'남녀|남.*여중|여.*남중', tgt):
+            genders.append('남녀')
+        elif re.search(r'남(?:성|자)', tgt):
+            genders.append('남성')
+        elif re.search(r'여(?:성|자)', tgt):
+            genders.append('여성')
+        # 라인별 분류
+        for line in tgt.split('\n'):
+            raw_stripped = _strip_prefix(line)
+            if not raw_stripped or not (6 < len(raw_stripped) < 100):
+                continue
+            # 데모 단독 라인(35-45 남성중 등) 스킵 — 연령·성별은 별도 집계
+            if re.fullmatch(r'\d{2}\s*[-~]\s*\d{2}\s*세\s*[남녀]+\s*(중|우선|만)?', raw_stripped):
+                continue
+            if re.fullmatch(r'[남녀]+\s*\d{2}\s*[-~]\s*\d{2}\s*세\s*(중|우선|만)?', raw_stripped):
+                continue
+
+            norm_key = _normalize_for_grouping(raw_stripped)
+
+            if _is_exclusion_line(raw_stripped):
+                exclude_counter[norm_key] += 1
+                if norm_key not in exclude_norm_to_rep:
+                    exclude_norm_to_rep[norm_key] = raw_stripped
+            else:
+                include_counter[norm_key] += 1
+                if norm_key not in include_norm_to_rep:
+                    include_norm_to_rep[norm_key] = raw_stripped
+
+    # 가장 흔한 연령 범위
+    age_pref = None
+    if age_ranges:
+        most_common_age = Counter(age_ranges).most_common(1)[0][0]
+        age_pref = most_common_age
+
+    # 가장 흔한 성별
+    gender_pref = Counter(genders).most_common(1)[0][0] if genders else None
+
+    # 복사용 추천 텍스트 생성
+    rec_lines = []
+    if age_pref and gender_pref:
+        rec_lines.append(f'{age_pref[0]}-{age_pref[1]}세 {gender_pref}')
+    elif age_pref:
+        rec_lines.append(f'{age_pref[0]}-{age_pref[1]}세')
+    elif gender_pref:
+        rec_lines.append(gender_pref)
+
+    # 포함 조건 (2건 이상 반복된 것 Top 5) — 표시는 원본 라인
+    top_includes = [
+        (include_norm_to_rep[k], n)
+        for k, n in include_counter.most_common(20) if n >= 2
+    ][:5]
+    if top_includes:
+        rec_lines.append('')
+        rec_lines.append('# 포함 조건 (베스트 캠페인 반복)')
+        for line, n in top_includes:
+            rec_lines.append(f'- {line}')
+
+    # 제외 조건 (1건 이상) — 표시는 원본 라인
+    top_excludes = [
+        (exclude_norm_to_rep[k], n)
+        for k, n in exclude_counter.most_common(10) if n >= 1
+    ][:5]
+    if top_excludes:
+        rec_lines.append('')
+        rec_lines.append('# 제외 조건 (디타겟팅)')
+        for line, n in top_excludes:
+            rec_lines.append(f'* {line}')
+
+    return {
+        'n_base': len(top),
+        'avg_ctr': float(top['CTR_calc'].mean()),
+        'min_ctr': float(top['CTR_calc'].min()),
+        'max_ctr': float(top['CTR_calc'].max()),
+        'common_includes': top_includes,
+        'common_excludes': top_excludes,
+        'age_pref': age_pref,
+        'gender_pref': gender_pref,
+        'recommended_text': '\n'.join(rec_lines) if rec_lines else '',
+    }
 
 
 # ──────────────────────────────────────────────
@@ -215,6 +410,13 @@ def render(df: pd.DataFrame):
         qualified['클릭수'].fillna(0) / qualified['발송량'] * 100,
         0,
     )
+    # 추천 엔진용 매체 카테고리
+    if '매체명' in qualified.columns:
+        qualified['_recommend_cat'] = qualified['매체명'].astype(str).apply(_classify_for_recommend)
+    elif '매체' in qualified.columns:
+        qualified['_recommend_cat'] = qualified['매체'].astype(str).apply(_classify_for_recommend)
+    else:
+        qualified['_recommend_cat'] = '플랫폼·기타'
 
     n_total = len(df)
     n_with_target = len(msg)
@@ -353,6 +555,138 @@ def render(df: pd.DataFrame):
                         f'</div>',
                         unsafe_allow_html=True,
                     )
+
+    # ═══════════════════════════════════════════════
+    # 🎁 추천 타겟 (통신사 / 카드사 별)
+    # ═══════════════════════════════════════════════
+    st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="font-size:1rem;font-weight:600;color:{COLOR_TEXT};'
+        f'margin-bottom:6px;letter-spacing:-0.01em;">🎁 추천 타겟 (자동 생성)</div>'
+        f'<div style="font-size:0.78rem;color:{COLOR_TEXT_SEC};margin-bottom:14px;">'
+        f'각 카테고리에서 <b>CTR 상위 30%</b> 캠페인의 타겟 텍스트를 분석해 '
+        f'반복되는 패턴을 추출했습니다. 운영팀이 그대로 복사해 새 캠페인에 활용할 수 있어요.</div>',
+        unsafe_allow_html=True,
+    )
+
+    rec_telecom = _recommend_targeting(qualified, '통신사')
+    rec_card = _recommend_targeting(qualified, '카드사')
+
+    rec_col1, rec_col2 = st.columns(2)
+    for col, rec, cat_label, cat_color in [
+        (rec_col1, rec_telecom, '통신사', COLOR_BLUE),
+        (rec_col2, rec_card, '카드사', BRAND_PRIMARY),
+    ]:
+        with col:
+            if rec is None:
+                st.markdown(
+                    f'<div style="border:1px dashed {COLOR_BORDER};border-radius:8px;'
+                    f'padding:14px 16px;background:{COLOR_CARD};margin-bottom:12px;height:100%;">'
+                    f'  <div style="font-size:0.85rem;font-weight:700;color:{cat_color};margin-bottom:6px;">'
+                    f'{cat_label} 추천 타겟</div>'
+                    f'  <div style="font-size:0.78rem;color:{COLOR_TEXT_TER};line-height:1.55;">'
+                    f'{cat_label} 캠페인이 5건 미만이라 추천을 생성할 수 없습니다. '
+                    f'더 많은 데이터가 쌓이면 자동으로 인사이트가 생성됩니다.</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+                continue
+
+            # 헤더 + 메트릭
+            age_str = (
+                f'{rec["age_pref"][0]}-{rec["age_pref"][1]}세' if rec['age_pref'] else '연령 다양'
+            )
+            gender_str = rec['gender_pref'] or '성별 다양'
+
+            st.markdown(
+                f'<div style="border:1px solid {COLOR_BORDER};border-left:3px solid {cat_color};'
+                f'border-radius:8px;padding:14px 16px;background:{COLOR_CARD};margin-bottom:10px;">'
+                # 헤더
+                f'  <div style="display:flex;align-items:center;justify-content:space-between;'
+                f'gap:10px;margin-bottom:10px;">'
+                f'    <div style="font-size:0.95rem;font-weight:700;color:{cat_color};'
+                f'letter-spacing:-0.01em;">{cat_label} 추천 타겟</div>'
+                f'    <div style="font-size:0.62rem;color:{COLOR_TEXT_TER};">'
+                f'{rec["n_base"]}개 베스트 캠페인 기반</div>'
+                f'  </div>'
+                # 기대 CTR
+                f'  <div style="background:{COLOR_BG};border-radius:6px;padding:10px 12px;'
+                f'margin-bottom:12px;display:flex;gap:14px;align-items:baseline;">'
+                f'    <div>'
+                f'      <div style="font-size:0.62rem;color:{COLOR_TEXT_SEC};text-transform:uppercase;'
+                f'letter-spacing:0.04em;font-weight:600;">기대 CTR</div>'
+                f'      <div style="font-size:1.1rem;color:{COLOR_TEXT};font-weight:700;line-height:1.2;">'
+                f'{rec["avg_ctr"]:.2f}%</div>'
+                f'    </div>'
+                f'    <div style="font-size:0.7rem;color:{COLOR_TEXT_TER};line-height:1.4;">'
+                f'베스트 범위: {rec["min_ctr"]:.2f}% ~ {rec["max_ctr"]:.2f}%'
+                f'</div>'
+                f'  </div>'
+                # 기본 타겟 (연령·성별)
+                f'  <div style="margin-bottom:8px;">'
+                f'    <div style="font-size:0.65rem;color:{COLOR_TEXT_SEC};text-transform:uppercase;'
+                f'letter-spacing:0.04em;font-weight:600;margin-bottom:4px;">권장 모수</div>'
+                f'    <div style="font-size:0.85rem;color:{COLOR_TEXT};font-weight:600;">'
+                f'{esc_html_safe(age_str)} · {esc_html_safe(gender_str)}</div>'
+                f'  </div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            # 포함 조건 리스트
+            if rec['common_includes']:
+                items_html = ''.join(
+                    f'<li style="margin-bottom:4px;">'
+                    f'<span style="color:{COLOR_TEXT};">{esc_html_safe(line)}</span>'
+                    f' <span style="font-size:0.62rem;color:{COLOR_TEXT_TER};">×{n}회</span>'
+                    f'</li>'
+                    for line, n in rec['common_includes']
+                )
+                st.markdown(
+                    f'<div style="border:1px solid {COLOR_BORDER_SUBTLE};border-radius:8px;'
+                    f'padding:10px 14px;background:{COLOR_CARD};margin-bottom:8px;">'
+                    f'  <div style="font-size:0.65rem;color:{COLOR_SUCCESS};text-transform:uppercase;'
+                    f'letter-spacing:0.04em;font-weight:600;margin-bottom:6px;">✓ 추천 포함 조건</div>'
+                    f'  <ul style="margin:0;padding-left:18px;font-size:0.78rem;line-height:1.6;">'
+                    f'{items_html}'
+                    f'  </ul>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+            # 제외 조건 리스트
+            if rec['common_excludes']:
+                items_html = ''.join(
+                    f'<li style="margin-bottom:4px;color:{COLOR_DANGER};">'
+                    f'{esc_html_safe(line)}'
+                    f' <span style="font-size:0.62rem;color:{COLOR_TEXT_TER};">×{n}회</span>'
+                    f'</li>'
+                    for line, n in rec['common_excludes']
+                )
+                st.markdown(
+                    f'<div style="border:1px solid #FECACA;border-radius:8px;'
+                    f'padding:10px 14px;background:#FFF8F8;margin-bottom:8px;">'
+                    f'  <div style="font-size:0.65rem;color:{COLOR_DANGER};text-transform:uppercase;'
+                    f'letter-spacing:0.04em;font-weight:600;margin-bottom:6px;">⛔ 추천 제외 조건 (디타겟팅)</div>'
+                    f'  <ul style="margin:0;padding-left:18px;font-size:0.78rem;line-height:1.6;">'
+                    f'{items_html}'
+                    f'  </ul>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div style="border:1px dashed {COLOR_BORDER_SUBTLE};border-radius:8px;'
+                    f'padding:8px 14px;font-size:0.7rem;color:{COLOR_TEXT_TER};margin-bottom:8px;">'
+                    f'⛔ 제외 조건 데이터가 부족합니다 (운영 시스템 동기화 확인 필요)'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+            # 복사용 텍스트
+            if rec['recommended_text']:
+                st.caption('📋 복사용 추천 타겟 텍스트')
+                st.code(rec['recommended_text'], language='text')
 
     # ═══════════════════════════════════════════════
     # 전체 캠페인 검색 가능 테이블
