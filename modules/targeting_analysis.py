@@ -58,6 +58,146 @@ def _classify_for_recommend(media_name: str) -> str:
 
 
 # ──────────────────────────────────────────────
+# 신규 타겟 발견 — 같은 업종 다른 광고주가 검증했지만 자사가 안 쓴 시그널
+# ──────────────────────────────────────────────
+def _extract_keywords_from_targets(df_subset: pd.DataFrame) -> set[str]:
+    """타겟 텍스트에서 의미 키워드(3자 이상 한글/영문) 집합 추출."""
+    keywords = set()
+    if df_subset.empty or '타겟' not in df_subset.columns:
+        return keywords
+    for tgt in df_subset['타겟'].dropna().astype(str):
+        for kw in re.findall(r'[가-힣A-Za-z]{3,}', tgt):
+            keywords.add(kw)
+    return keywords
+
+
+def discover_new_signals(
+    full_df: pd.DataFrame,
+    advertiser: str,
+    industry: str,
+    *,
+    min_campaigns: int = 2,
+    max_results: int = 12,
+) -> list[dict]:
+    """자사 미사용 시그널 자동 발견.
+
+    프로세스:
+      1) 카드사 매체 캠페인만 필터 (정밀 SEG 활용)
+      2) 자사가 쓴 타겟 키워드 집합 추출
+      3) 같은 업종 다른 광고주의 카드사 캠페인에서 라인별 추출
+      4) 자사 키워드와 겹치지 않는 라인만 = '신규 시그널'
+      5) 라인별 발견 캠페인 수 / 평균 CTR / 활용 광고주 집계
+      6) 평균 CTR 높은 순 정렬 → max_results 개
+
+    Returns:
+      [{line, avg_ctr, n_campaigns, brands, max_ctr}, ...]
+    """
+    if full_df is None or full_df.empty or '타겟' not in full_df.columns:
+        return []
+
+    # 카드사 매체만
+    media_col = '매체명' if '매체명' in full_df.columns else '매체'
+    if media_col not in full_df.columns:
+        return []
+    is_card = full_df[media_col].astype(str).apply(
+        lambda m: _classify_for_recommend(m) == '카드사'
+    )
+    card = full_df[is_card].copy()
+    if card.empty:
+        return []
+
+    # 발송 컬럼 호환 (raw 'campaigns' = 발송건 / 광고주 데이터 = 발송량)
+    sends_col = '발송량' if '발송량' in card.columns else '발송건'
+    clicks_col = '클릭수'
+
+    # 자사가 쓴 키워드
+    me_campaigns = card[card['_브랜드'] == advertiser] if '_브랜드' in card.columns else card.iloc[0:0]
+    me_keywords = _extract_keywords_from_targets(me_campaigns)
+
+    # 같은 업종 다른 광고주
+    if '분야' not in card.columns or '_브랜드' not in card.columns:
+        return []
+    others = card[(card['분야'] == industry) & (card['_브랜드'] != advertiser)].copy()
+    if others.empty:
+        return []
+
+    # qualified (발송 5천+, 타겟 있음)
+    others = others[
+        others['타겟'].notna()
+        & (others['타겟'].astype(str).str.strip() != '')
+        & (pd.to_numeric(others[sends_col], errors='coerce').fillna(0) >= MIN_SENDS_FOR_CTR_CLAIM)
+    ]
+    if others.empty:
+        return []
+    # CTR 계산
+    others = others.copy()
+    others['_ctr'] = (
+        pd.to_numeric(others[clicks_col], errors='coerce').fillna(0)
+        / pd.to_numeric(others[sends_col], errors='coerce').clip(lower=1)
+        * 100
+    )
+
+    # 라인별 신규성 + 검증 데이터 집계
+    line_acc: dict[str, dict] = {}
+    for _, r in others.iterrows():
+        tgt = str(r.get('타겟', ''))
+        brand = str(r.get('_브랜드', ''))
+        ctr = float(r['_ctr'])
+        for raw in tgt.split('\n'):
+            line = _strip_prefix(raw)
+            if not (6 < len(line) < 120):
+                continue
+            # 데모 단독 라인 스킵
+            if re.fullmatch(r'\d{2}\s*[-~]?\s*\d{0,2}\s*(?:대|세)?\s*[남녀]*\s*[남녀]*\s*(?:중|만|우선)?', line):
+                continue
+            # 명백한 제외 라인은 별도 처리 (지금은 제외)
+            if _is_exclusion_line(line):
+                continue
+            # 라인의 의미 키워드 추출
+            line_kws = set(re.findall(r'[가-힣A-Za-z]{3,}', line))
+            if not line_kws:
+                continue
+            # 라인의 모든 의미 키워드가 자사 사용 → 신규 아님 (스킵)
+            new_kws = line_kws - me_keywords
+            if not new_kws:
+                continue
+            # 너무 일반적인 단어만 신규로 남으면 의미 약함 (예: '결제자')
+            if all(k in {'결제자', '결제', '이용자', '발급자', '구매자'} for k in new_kws):
+                continue
+
+            norm = _normalize_for_grouping(line)
+            if norm not in line_acc:
+                line_acc[norm] = {
+                    'rep': line,           # 첫 등장 원본 보존
+                    'ctrs': [],
+                    'brands': set(),
+                    'new_kws': set(),
+                }
+            line_acc[norm]['ctrs'].append(ctr)
+            line_acc[norm]['brands'].add(brand)
+            line_acc[norm]['new_kws'].update(new_kws)
+
+    # 결과 정리
+    results = []
+    for norm, info in line_acc.items():
+        if len(info['ctrs']) < min_campaigns:
+            continue
+        avg_ctr = sum(info['ctrs']) / len(info['ctrs'])
+        results.append({
+            'line': info['rep'],
+            'avg_ctr': avg_ctr,
+            'max_ctr': max(info['ctrs']),
+            'n_campaigns': len(info['ctrs']),
+            'brands': sorted(info['brands']),
+            'new_keywords': sorted(info['new_kws']),
+        })
+
+    # 평균 CTR 높은 순
+    results.sort(key=lambda x: x['avg_ctr'], reverse=True)
+    return results[:max_results]
+
+
+# ──────────────────────────────────────────────
 # 추천 엔진 — 베스트 캠페인 타겟 텍스트에서 공통 패턴 추출
 # ──────────────────────────────────────────────
 def _strip_prefix(line: str) -> str:
@@ -687,6 +827,131 @@ def render(df: pd.DataFrame):
             if rec['recommended_text']:
                 st.caption('📋 복사용 추천 타겟 텍스트')
                 st.code(rec['recommended_text'], language='text')
+
+    # ═══════════════════════════════════════════════
+    # 💡 신규 타겟 제안 — 자사 미사용 시그널 자동 발견
+    # ═══════════════════════════════════════════════
+    st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="font-size:1rem;font-weight:600;color:{COLOR_TEXT};'
+        f'margin-bottom:6px;letter-spacing:-0.01em;">💡 신규 타겟 제안 (자사 미사용)</div>'
+        f'<div style="font-size:0.78rem;color:{COLOR_TEXT_SEC};margin-bottom:14px;">'
+        f'당사가 카드사 캠페인에서 안 쓴 시그널 중, '
+        f'<b>같은 업종 다른 광고주가 검증한</b> 타겟 패턴입니다. '
+        f'평균 CTR 높은 순으로 정렬되며, 클릭하면 어떤 광고주가 썼는지 볼 수 있어요.</div>',
+        unsafe_allow_html=True,
+    )
+
+    # 현재 광고주 + 업종 식별
+    _adv_name = ''
+    _industry = ''
+    if '_브랜드' in df.columns:
+        vals = df['_브랜드'].dropna().astype(str)
+        if not vals.empty:
+            _adv_name = str(vals.iloc[0])
+    if '분야' in df.columns:
+        ind_counts = df['분야'].dropna().astype(str).str.strip().value_counts()
+        ind_counts = ind_counts[ind_counts.index != '']
+        if not ind_counts.empty:
+            _industry = str(ind_counts.index[0])
+
+    if not _adv_name or not _industry:
+        st.markdown(
+            f'<div style="border:1px dashed {COLOR_BORDER};border-radius:8px;'
+            f'padding:14px 16px;color:{COLOR_TEXT_TER};font-size:0.8rem;text-align:center;">'
+            f'광고주·업종 정보가 부족해 신규 시그널을 발견할 수 없습니다. '
+            f'(Firebase 연동 클라이언트에서만 동작)</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        # Firebase에서 전체 데이터 로드 (30분 캐시)
+        try:
+            from modules.firebase_connector import load_from_firestore
+            full_data = load_from_firestore()
+        except Exception:
+            full_data = None
+
+        if full_data is None or full_data.empty:
+            st.markdown(
+                f'<div style="border:1px dashed {COLOR_BORDER};border-radius:8px;'
+                f'padding:14px 16px;color:{COLOR_TEXT_TER};font-size:0.8rem;text-align:center;">'
+                f'Firebase 데이터 로드 실패 (할당량 초과 가능성 — 잠시 후 자동 복구).</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            new_signals = discover_new_signals(full_data, _adv_name, _industry)
+
+            if not new_signals:
+                st.markdown(
+                    f'<div style="border:1px dashed {COLOR_BORDER};border-radius:8px;'
+                    f'padding:14px 16px;color:{COLOR_TEXT_TER};font-size:0.8rem;text-align:center;">'
+                    f'{esc_html_safe(_industry)} 업종에서 자사 미사용 신규 시그널이 감지되지 않았습니다.<br>'
+                    f'(이미 다양한 시그널을 활용 중이거나, 같은 업종 비교 광고주가 부족한 상태)</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div style="font-size:0.75rem;color:{COLOR_TEXT_SEC};margin-bottom:10px;">'
+                    f'<b>{esc_html_safe(_adv_name)}</b>이(가) 안 쓴 <b>{len(new_signals)}개</b> 시그널 발견 · '
+                    f'<b>{esc_html_safe(_industry)}</b> 업종 비교</div>',
+                    unsafe_allow_html=True,
+                )
+
+                # 2열 카드 그리드
+                rows = list(new_signals)
+                for i in range(0, len(rows), 2):
+                    cols = st.columns(2)
+                    for j, col in enumerate(cols):
+                        if i + j >= len(rows):
+                            break
+                        sig = rows[i + j]
+                        with col:
+                            brand_list = ', '.join(sig['brands'][:3])
+                            if len(sig['brands']) > 3:
+                                brand_list += f' 외 {len(sig["brands"]) - 3}곳'
+                            kws_html = ' '.join(
+                                f'<span style="font-size:0.62rem;color:{BRAND_PRIMARY};'
+                                f'background:#FFF6E8;padding:1px 6px;border-radius:4px;'
+                                f'margin-right:3px;">+{esc_html_safe(k)}</span>'
+                                for k in sig['new_keywords'][:4]
+                            )
+                            avg_ctr = sig['avg_ctr']
+                            ctr_color = COLOR_SUCCESS if avg_ctr >= 2.0 else COLOR_BLUE
+                            st.markdown(
+                                f'<div style="border:1px solid {COLOR_BORDER};border-left:3px solid {ctr_color};'
+                                f'border-radius:8px;padding:12px 14px;background:{COLOR_CARD};margin-bottom:10px;">'
+                                # 시그널 라인
+                                f'  <div style="font-size:0.82rem;color:{COLOR_TEXT};font-weight:600;'
+                                f'line-height:1.45;margin-bottom:8px;letter-spacing:-0.005em;">'
+                                f'{esc_html_safe(sig["line"])}</div>'
+                                # 새 키워드 칩
+                                + (f'  <div style="margin-bottom:8px;">{kws_html}</div>' if kws_html else '')
+                                # 메트릭
+                                + f'  <div style="display:flex;align-items:center;justify-content:space-between;'
+                                f'gap:8px;padding-top:8px;border-top:1px dashed {COLOR_BORDER_SUBTLE};">'
+                                f'    <div style="font-size:0.65rem;color:{COLOR_TEXT_SEC};">'
+                                f'활용 광고주: <b style="color:{COLOR_TEXT};">{esc_html_safe(brand_list)}</b><br>'
+                                f'캠페인 수: {sig["n_campaigns"]}건</div>'
+                                f'    <div style="text-align:right;">'
+                                f'      <div style="font-size:1rem;color:{ctr_color};font-weight:700;line-height:1;">'
+                                f'{avg_ctr:.2f}%</div>'
+                                f'      <div style="font-size:0.6rem;color:{COLOR_TEXT_TER};margin-top:1px;">'
+                                f'평균 CTR (최대 {sig["max_ctr"]:.2f}%)</div>'
+                                f'    </div>'
+                                f'  </div>'
+                                f'</div>',
+                                unsafe_allow_html=True,
+                            )
+
+                # 복사용 통합 텍스트
+                st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
+                copy_lines = [f'# {_adv_name} 신규 타겟 시그널 (자사 미사용 · {_industry} 업종 검증)']
+                copy_lines.append('')
+                for sig in new_signals[:8]:
+                    copy_lines.append(f'- {sig["line"]}')
+                    copy_lines.append(f'  (평균 CTR {sig["avg_ctr"]:.2f}% · {sig["n_campaigns"]}건 · {", ".join(sig["brands"][:3])})')
+                st.caption('📋 복사용 신규 타겟 시그널 목록')
+                st.code('\n'.join(copy_lines), language='text')
 
     # ═══════════════════════════════════════════════
     # 전체 캠페인 검색 가능 테이블
