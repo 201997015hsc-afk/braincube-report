@@ -243,32 +243,73 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
 # ──────────────────────────────────────────────
 # 캐시된 데이터 로더 (Public API)
 # ──────────────────────────────────────────────
+# 디스크 캐시: Firestore 호출 1번 = 전체 컬렉션(620+ 문서) 읽기라서
+# 무료 티어 quota(5만 reads/일)가 쉽게 소진됨.
+#   - 신선(6시간 이내) 디스크 캐시가 있으면 Firestore를 아예 호출 안 함
+#   - Firestore 실패(429 등) 시 오래된 캐시라도 폴백 (stale > nothing)
+#   - 로컬 분석 스크립트(새 프로세스)도 캐시 공유 → quota 소모 0
+
+_DISK_CACHE_PATH = os.path.join(_BASE_DIR, '.cache', 'campaigns_cache.pkl')
+_DISK_CACHE_FRESH_SECS = 6 * 3600  # 6시간
+
+
+def _disk_cache_read(max_age_secs: float | None) -> pd.DataFrame | None:
+    """디스크 캐시 로드. max_age_secs=None이면 나이 무관(폴백용)."""
+    try:
+        if not os.path.exists(_DISK_CACHE_PATH):
+            return None
+        import time as _time
+        age = _time.time() - os.path.getmtime(_DISK_CACHE_PATH)
+        if max_age_secs is not None and age > max_age_secs:
+            return None
+        df = pd.read_pickle(_DISK_CACHE_PATH)
+        return df if isinstance(df, pd.DataFrame) and not df.empty else None
+    except Exception:
+        return None
+
+
+def _disk_cache_write(df: pd.DataFrame) -> None:
+    try:
+        os.makedirs(os.path.dirname(_DISK_CACHE_PATH), exist_ok=True)
+        df.to_pickle(_DISK_CACHE_PATH)
+    except Exception:
+        pass  # 캐시 실패는 치명적 아님 (쓰기 권한 없는 환경 등)
+
 
 @st.cache_data(ttl=1800, show_spinner="Firebase에서 데이터 로딩 중...")
 def load_from_firestore() -> pd.DataFrame | None:
-    """Firestore campaigns 컬렉션 전체 → DataFrame (5분 캐시)
+    """Firestore campaigns 컬렉션 전체 → DataFrame (메모리 30분 + 디스크 6시간 캐시)
 
     인증 우선순위:
       1. Streamlit secrets (클라우드 배포)
       2. 로컬 JSON 파일 (로컬 개발)
     둘 다 없으면 None.
     """
+    # 0. 신선한 디스크 캐시가 있으면 Firestore 호출 생략 (quota 절약)
+    cached = _disk_cache_read(_DISK_CACHE_FRESH_SECS)
+    if cached is not None:
+        return cached
+
     # 자격증명 확보 가능 여부 확인 (로컬 파일 OR Streamlit secrets)
     has_local_key = _KEY_PATH is not None and os.path.exists(_KEY_PATH)
     has_secrets = _load_credentials_dict() is not None
     if not has_local_key and not has_secrets:
-        return None
+        return _disk_cache_read(None)  # 자격증명 없어도 캐시는 사용 가능
     try:
         db = _get_firestore_client()
         docs = list(db.collection(_COLLECTION).stream())
         if not docs:
-            return None
+            return _disk_cache_read(None)
         df = _docs_to_dataframe(docs)
-        return df if not df.empty else None
-    except Exception as e:
+        if df is not None and not df.empty:
+            _disk_cache_write(df)
+            return df
+        return _disk_cache_read(None)
+    except Exception:
         import traceback
         traceback.print_exc()
-        return None
+        # Firestore 실패 (429 quota 등) → 오래된 디스크 캐시라도 폴백
+        return _disk_cache_read(None)
 
 
 def load_benchmark() -> pd.DataFrame | None:

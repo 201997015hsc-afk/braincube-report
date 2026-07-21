@@ -53,3 +53,4 @@ _test_*
 
 # Claude Code ���� ����
 .claude/
+.cache/
