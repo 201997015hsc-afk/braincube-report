@@ -422,6 +422,59 @@ def render(df: pd.DataFrame):
             lower_is_better=False,
         ), unsafe_allow_html=True)
 
+    # ── DB(전환) 성과 — 전환 추적 캠페인이 있는 광고주만 표시 ──
+    # DB = 가입/상담신청 등 전환 수. CPDB = DB보유 캠페인 광고비 ÷ DB.
+    if 'DB' in df.columns:
+        _db_cur = cur[pd.to_numeric(cur['DB'], errors='coerce').fillna(0) > 0].copy()
+        if not _db_cur.empty:
+            _db_cur['_DB'] = pd.to_numeric(_db_cur['DB'], errors='coerce')
+            cur_db = float(_db_cur['_DB'].sum())
+            cur_db_cost = float(_db_cur['집행금액'].sum())
+            cur_cpdb = (cur_db_cost / cur_db) if cur_db > 0 else 0
+            _db_clicks = float(_db_cur['클릭수'].fillna(0).sum())
+            cur_cvr = (cur_db / _db_clicks * 100) if _db_clicks > 0 else None
+
+            prev_db, prev_cpdb = 0.0, 0.0
+            if prev_month:
+                _db_prev = prev[pd.to_numeric(prev['DB'], errors='coerce').fillna(0) > 0].copy()
+                if not _db_prev.empty:
+                    _db_prev['_DB'] = pd.to_numeric(_db_prev['DB'], errors='coerce')
+                    prev_db = float(_db_prev['_DB'].sum())
+                    _pcost = float(_db_prev['집행금액'].sum())
+                    prev_cpdb = (_pcost / prev_db) if prev_db > 0 else 0
+
+            mom_db_txt, mom_db_dir = _fmt_delta_pct(cur_db, prev_db) if prev_month else ('', 'flat')
+            if cur_cpdb > 0 and prev_cpdb > 0:
+                mom_cpdb_txt, mom_cpdb_dir = _fmt_delta_pct(cur_cpdb, prev_cpdb)
+            else:
+                mom_cpdb_txt, mom_cpdb_dir = '', 'flat'
+
+            st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="font-size:0.78rem;font-weight:600;color:{COLOR_TEXT};'
+                f'margin:4px 0 8px 0;">💰 DB(전환) 성과'
+                f'<span style="font-weight:400;color:{COLOR_TEXT_SEC};font-size:0.72rem;"> — '
+                f'전환 추적 캠페인 {len(_db_cur)}건 기준</span></div>',
+                unsafe_allow_html=True,
+            )
+            d1, d2, d3 = st.columns(3)
+            with d1:
+                st.markdown(_kpi_card_overview(
+                    'DB (전환)', f'{cur_db:,.0f}건',
+                    mom_text=mom_db_txt, mom_dir=mom_db_dir,
+                ), unsafe_allow_html=True)
+            with d2:
+                st.markdown(_kpi_card_overview(
+                    'CPDB (전환당 비용)', f'{cur_cpdb:,.0f}원',
+                    mom_text=mom_cpdb_txt, mom_dir=mom_cpdb_dir,
+                    lower_is_better=True,
+                ), unsafe_allow_html=True)
+            with d3:
+                st.markdown(_kpi_card_overview(
+                    '클릭 → DB 전환율',
+                    f'{cur_cvr:.1f}%' if cur_cvr is not None else '—',
+                ), unsafe_allow_html=True)
+
     st.markdown('<div class="space-lg"></div>', unsafe_allow_html=True)
 
     # ── 한 줄 요약 ──

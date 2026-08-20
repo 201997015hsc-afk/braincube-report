@@ -634,6 +634,88 @@ def render(df: pd.DataFrame):
         st.markdown(_best_target_card(row, rank=rank, avg_ctr=avg_ctr), unsafe_allow_html=True)
 
     # ═══════════════════════════════════════════════
+    # 💰 DB 기준 베스트 타겟 — 전환 추적 캠페인만 (CPA 포함)
+    # ═══════════════════════════════════════════════
+    if 'DB' in df.columns:
+        db_pool = df[df['타겟'].notna() & (df['타겟'].astype(str).str.strip() != '')].copy()
+        db_pool['_DB'] = pd.to_numeric(db_pool['DB'], errors='coerce').fillna(0)
+        db_pool = db_pool[(db_pool['_DB'] >= 3) & (db_pool['집행금액'].fillna(0) > 0)]
+        if not db_pool.empty:
+            db_pool['_CPDB'] = db_pool['집행금액'] / db_pool['_DB']
+            total_db = float(db_pool['_DB'].sum())
+            total_db_cost = float(db_pool['집행금액'].sum())
+            avg_cpdb = total_db_cost / total_db if total_db > 0 else 0
+
+            st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div style="font-size:1rem;font-weight:600;color:{COLOR_TEXT};'
+                f'margin-bottom:6px;letter-spacing:-0.01em;">💰 DB 기준 베스트 타겟 Top 5</div>'
+                f'<div style="font-size:0.78rem;color:{COLOR_TEXT_SEC};margin-bottom:14px;">'
+                f'전환(DB) 추적 캠페인 <b>{len(db_pool)}건</b> · 총 DB <b>{total_db:,.0f}건</b> · '
+                f'평균 CPDB <b>{avg_cpdb:,.0f}원</b> — CPDB(전환당 비용) 낮은 순. '
+                f'CTR과 달리 CPA 캠페인도 포함됩니다.</div>',
+                unsafe_allow_html=True,
+            )
+
+            for rank, (_, row) in enumerate(
+                db_pool.nsmallest(5, '_CPDB').iterrows(), start=1
+            ):
+                cpdb = float(row['_CPDB'])
+                db_n = float(row['_DB'])
+                cost = float(row.get('집행금액', 0) or 0)
+                media = str(row.get('매체명', row.get('매체', '—')))
+                product = str(row.get('광고상품', '') or '')
+                target = str(row.get('타겟', '') or '')
+                cpdb_color = COLOR_SUCCESS if cpdb <= avg_cpdb else COLOR_BLUE
+                date_str = ''
+                for col in ('년월', '날짜', '일자'):
+                    if col in row.index and pd.notna(row.get(col)):
+                        v = row[col]
+                        date_str = v.strftime('%Y-%m-%d') if hasattr(v, 'strftime') else str(v)
+                        break
+                # 메시징이면 클릭→DB 전환율 표시
+                cvr_html = ''
+                _clicks = pd.to_numeric(pd.Series([row.get('클릭수')]), errors='coerce').iloc[0]
+                if pd.notna(_clicks) and _clicks > 0:
+                    cvr_html = (
+                        f' · 클릭→DB <b style="color:{COLOR_TEXT};">{db_n/_clicks*100:.1f}%</b>'
+                    )
+                st.markdown(
+                    f'<div style="border:1px solid {COLOR_BORDER};border-left:3px solid {cpdb_color};'
+                    f'border-radius:8px;padding:14px 18px;background:{COLOR_CARD};margin-bottom:10px;">'
+                    f'  <div style="display:flex;align-items:center;justify-content:space-between;'
+                    f'gap:12px;margin-bottom:8px;">'
+                    f'    <div style="display:flex;align-items:center;gap:10px;">'
+                    f'      <span style="display:inline-flex;align-items:center;justify-content:center;'
+                    f'width:24px;height:24px;background:{cpdb_color};color:white;border-radius:50%;'
+                    f'font-size:0.7rem;font-weight:700;">{rank}</span>'
+                    f'      <div>'
+                    f'        <span style="font-size:0.95rem;color:{COLOR_TEXT};font-weight:700;">'
+                    f'{esc_html_safe(media)}</span>'
+                    + (f' <span style="font-size:0.65rem;color:{COLOR_TEXT_SEC};background:{COLOR_BG};'
+                       f'padding:2px 8px;border-radius:999px;font-weight:600;">{esc_html_safe(product)}</span>'
+                       if product else '')
+                    + f'        <div style="font-size:0.68rem;color:{COLOR_TEXT_TER};margin-top:2px;">'
+                    f'{esc_html_safe(date_str)} · DB <b style="color:{COLOR_TEXT};">{db_n:,.0f}건</b> · '
+                    f'광고비 {compact_num(cost, "원")}{cvr_html}</div>'
+                    f'      </div>'
+                    f'    </div>'
+                    f'    <div style="text-align:right;">'
+                    f'      <div style="font-size:1.4rem;color:{cpdb_color};font-weight:700;line-height:1;">'
+                    f'{cpdb:,.0f}원</div>'
+                    f'      <div style="font-size:0.62rem;color:{COLOR_TEXT_TER};margin-top:2px;">CPDB</div>'
+                    f'    </div>'
+                    f'  </div>'
+                    f'  <div style="background:{COLOR_BG};border-radius:6px;padding:10px 14px;'
+                    f'font-size:0.78rem;color:{COLOR_TEXT};line-height:1.6;'
+                    f'border-left:2px solid {COLOR_BORDER};">'
+                    f'{_format_target_text(target)}'
+                    f'  </div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+    # ═══════════════════════════════════════════════
     # 매체별 베스트 1건
     # ═══════════════════════════════════════════════
     if '매체명' in qualified.columns and qualified['매체명'].nunique() >= 3:
@@ -983,11 +1065,23 @@ def render(df: pd.DataFrame):
         st.info('검색 조건에 맞는 캠페인이 없습니다.')
         return
 
+    # DB·CPDB 파생 (전환 추적 캠페인이 있을 때만 컬럼 노출)
+    _show_db = False
+    if 'DB' in table_df.columns:
+        table_df['_DB_num'] = pd.to_numeric(table_df['DB'], errors='coerce').fillna(0)
+        if (table_df['_DB_num'] > 0).any():
+            _show_db = True
+            table_df['_CPDB_num'] = np.where(
+                table_df['_DB_num'] > 0,
+                table_df['집행금액'].fillna(0) / table_df['_DB_num'],
+                np.nan,
+            )
+
     # 표시용 컬럼 선택 + 정리
     display_cols = []
     rename_map = {}
 
-    for src, dst in [
+    col_spec = [
         ('년월', '월'),
         ('날짜', '일자'),
         ('매체명', '매체'),
@@ -996,7 +1090,11 @@ def render(df: pd.DataFrame):
         ('발송량', '발송'),
         ('클릭수', '클릭'),
         ('CTR_calc', 'CTR(%)'),
-    ]:
+    ]
+    if _show_db:
+        col_spec += [('_DB_num', 'DB'), ('_CPDB_num', 'CPDB(원)')]
+
+    for src, dst in col_spec:
         if src in table_df.columns:
             display_cols.append(src)
             rename_map[src] = dst
@@ -1008,6 +1106,10 @@ def render(df: pd.DataFrame):
         table_view['발송'] = table_view['발송'].astype(int)
     if '클릭' in table_view.columns:
         table_view['클릭'] = pd.to_numeric(table_view['클릭'], errors='coerce').fillna(0).astype(int)
+    if 'DB' in table_view.columns:
+        table_view['DB'] = table_view['DB'].astype(int)
+    if 'CPDB(원)' in table_view.columns:
+        table_view['CPDB(원)'] = table_view['CPDB(원)'].round(0)
     if '일자' in table_view.columns:
         table_view['일자'] = pd.to_datetime(table_view['일자'], errors='coerce').dt.strftime('%Y-%m-%d')
 
