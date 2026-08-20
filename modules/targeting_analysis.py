@@ -649,10 +649,10 @@ def render(df: pd.DataFrame):
             st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
             st.markdown(
                 f'<div style="font-size:1rem;font-weight:600;color:{COLOR_TEXT};'
-                f'margin-bottom:6px;letter-spacing:-0.01em;">💰 DB 기준 베스트 타겟 Top 5</div>'
+                f'margin-bottom:6px;letter-spacing:-0.01em;">💰 DB 기준 베스트 타겟 Top 5 (CPA 단가순)</div>'
                 f'<div style="font-size:0.78rem;color:{COLOR_TEXT_SEC};margin-bottom:14px;">'
                 f'전환(DB) 추적 캠페인 <b>{len(db_pool)}건</b> · 총 DB <b>{total_db:,.0f}건</b> · '
-                f'평균 CPDB <b>{avg_cpdb:,.0f}원</b> — CPDB(전환당 비용) 낮은 순. '
+                f'평균 CPA 단가 <b>{avg_cpdb:,.0f}원</b> — CPA 단가(전환당 비용) 낮은 순. '
                 f'CTR과 달리 CPA 캠페인도 포함됩니다.</div>',
                 unsafe_allow_html=True,
             )
@@ -703,7 +703,7 @@ def render(df: pd.DataFrame):
                     f'    <div style="text-align:right;">'
                     f'      <div style="font-size:1.4rem;color:{cpdb_color};font-weight:700;line-height:1;">'
                     f'{cpdb:,.0f}원</div>'
-                    f'      <div style="font-size:0.62rem;color:{COLOR_TEXT_TER};margin-top:2px;">CPDB</div>'
+                    f'      <div style="font-size:0.62rem;color:{COLOR_TEXT_TER};margin-top:2px;">CPA 단가</div>'
                     f'    </div>'
                     f'  </div>'
                     f'  <div style="background:{COLOR_BG};border-radius:6px;padding:10px 14px;'
@@ -1092,7 +1092,7 @@ def render(df: pd.DataFrame):
         ('CTR_calc', 'CTR(%)'),
     ]
     if _show_db:
-        col_spec += [('_DB_num', 'DB'), ('_CPDB_num', 'CPDB(원)')]
+        col_spec += [('_DB_num', 'DB'), ('_CPDB_num', 'CPA단가(원)')]
 
     for src, dst in col_spec:
         if src in table_df.columns:
@@ -1108,8 +1108,8 @@ def render(df: pd.DataFrame):
         table_view['클릭'] = pd.to_numeric(table_view['클릭'], errors='coerce').fillna(0).astype(int)
     if 'DB' in table_view.columns:
         table_view['DB'] = table_view['DB'].astype(int)
-    if 'CPDB(원)' in table_view.columns:
-        table_view['CPDB(원)'] = table_view['CPDB(원)'].round(0)
+    if 'CPA단가(원)' in table_view.columns:
+        table_view['CPA단가(원)'] = table_view['CPA단가(원)'].round(0)
     if '일자' in table_view.columns:
         table_view['일자'] = pd.to_datetime(table_view['일자'], errors='coerce').dt.strftime('%Y-%m-%d')
 

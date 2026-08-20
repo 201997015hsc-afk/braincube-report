@@ -592,15 +592,31 @@ def get_benchmark_stats(industry: str = None) -> dict | None:
     ctr_vals = has_click['_CTR'].dropna()
     cpc_vals = has_click['_CPC'].dropna()
 
+    # CPA(전환당 비용) 벤치마크 — DB(전환) 추적 캠페인만: 광고비 ÷ DB
+    if 'DB' in df.columns:
+        _db_rows = df[pd.to_numeric(df['DB'], errors='coerce').fillna(0) > 0].copy()
+    else:
+        _db_rows = df.iloc[0:0]
+    if not _db_rows.empty:
+        _dbn = pd.to_numeric(_db_rows['DB'], errors='coerce')
+        _cpa = (_db_rows['광고비'].fillna(0) / _dbn).replace([np.inf, -np.inf], np.nan).dropna()
+        cpa_vals = _cpa[_cpa > 0]
+    else:
+        cpa_vals = pd.Series(dtype=float)
+
     return {
         'avg_ctr': float(ctr_vals.mean()) if len(ctr_vals) > 0 else 0,
         'med_ctr': float(ctr_vals.median()) if len(ctr_vals) > 0 else 0,
         'avg_cpc': float(cpc_vals.mean()) if len(cpc_vals) > 0 else 0,
         'med_cpc': float(cpc_vals.median()) if len(cpc_vals) > 0 else 0,
+        'avg_cpa': float(cpa_vals.mean()) if len(cpa_vals) > 0 else 0,
+        'med_cpa': float(cpa_vals.median()) if len(cpa_vals) > 0 else 0,
         'total_campaigns': len(df),
         'click_campaigns': len(has_click),
+        'db_campaigns': int(len(cpa_vals)),
         'ctr_values': ctr_vals.tolist(),
         'cpc_values': cpc_vals.tolist(),
+        'cpa_values': cpa_vals.tolist(),
         'industries': sorted(df['분야'].dropna().unique().tolist()),
     }
 

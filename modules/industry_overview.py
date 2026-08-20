@@ -156,6 +156,15 @@ def render(df: pd.DataFrame):
     our_ctr = calc_ctr_scalar(our_click, our_send)
     our_cpc = (our_cost / our_click) if our_click > 0 else 0
 
+    # DB(전환) 추적 시 비용 효율은 CPA 단가 기준 (전체 캠페인 대상, CPA 상품 포함)
+    our_db, our_cpa = 0.0, 0.0
+    if 'DB' in df.columns:
+        _dbr = df[pd.to_numeric(df['DB'], errors='coerce').fillna(0) > 0]
+        if not _dbr.empty:
+            our_db = float(pd.to_numeric(_dbr['DB'], errors='coerce').sum())
+            _db_cost = float(_dbr['집행금액'].sum())
+            our_cpa = (_db_cost / our_db) if our_db > 0 else 0
+
     # ── 업종 벤치마크 ──
     bench = get_benchmark_stats(industry)
     if not bench or bench.get('total_campaigns', 0) == 0:
@@ -175,10 +184,16 @@ def render(df: pd.DataFrame):
 
     # ── 우리 백분위 ──
     our_ctr_pct = calc_percentile(our_ctr, ctr_distribution) if our_ctr > 0 else None
-    our_cpc_pct = (
-        calc_percentile(-our_cpc, [-c for c in cpc_distribution if c > 0])
-        if our_cpc > 0 and cpc_distribution else None
-    )
+    cpa_distribution = bench.get('cpa_values', []) or []
+    # DB 추적 시 비용 효율 백분위는 CPA 기준, 아니면 CPC 기준
+    if our_cpa > 0 and cpa_distribution:
+        our_cost_pct = calc_percentile(-our_cpa, [-c for c in cpa_distribution if c > 0])
+        cost_chip_label = 'CPA 효율'
+    elif our_cpc > 0 and cpc_distribution:
+        our_cost_pct = calc_percentile(-our_cpc, [-c for c in cpc_distribution if c > 0])
+        cost_chip_label = 'CPC 효율'
+    else:
+        our_cost_pct, cost_chip_label = None, ''
 
     # ── 동종업계 광고주 수 ──
     full = load_from_firestore()
@@ -240,12 +255,21 @@ def render(df: pd.DataFrame):
             f'광고주 {n_ind_brands}곳 운영 중',
         ), unsafe_allow_html=True)
     with c4:
-        cpc_text = f'{our_cpc:,.0f}원' if our_cpc > 0 else '—'
-        bench_cpc_text = f'{bench_avg_cpc:,.0f}원' if bench_avg_cpc > 0 else '—'
-        st.markdown(_summary_card(
-            '우리 CPC', cpc_text,
-            f'업종 평균 {bench_cpc_text}',
-        ), unsafe_allow_html=True)
+        if our_cpa > 0:
+            # DB 추적 광고주 — CPA 단가로 표시
+            bench_avg_cpa = float(bench.get('avg_cpa', 0) or 0)
+            bench_cpa_text = f'{bench_avg_cpa:,.0f}원' if bench_avg_cpa > 0 else '—'
+            st.markdown(_summary_card(
+                '우리 CPA 단가', f'{our_cpa:,.0f}원',
+                f'DB {our_db:,.0f}건 · 업종 평균 {bench_cpa_text}',
+            ), unsafe_allow_html=True)
+        else:
+            cpc_text = f'{our_cpc:,.0f}원' if our_cpc > 0 else '—'
+            bench_cpc_text = f'{bench_avg_cpc:,.0f}원' if bench_avg_cpc > 0 else '—'
+            st.markdown(_summary_card(
+                '우리 CPC', cpc_text,
+                f'업종 평균 {bench_cpc_text}',
+            ), unsafe_allow_html=True)
 
     st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
 
@@ -253,8 +277,8 @@ def render(df: pd.DataFrame):
     chips = []
     if our_ctr_pct is not None:
         chips.append(_percentile_chip('CTR', our_ctr_pct))
-    if our_cpc_pct is not None:
-        chips.append(_percentile_chip('CPC 효율', our_cpc_pct))
+    if our_cost_pct is not None:
+        chips.append(_percentile_chip(cost_chip_label, our_cost_pct))
     if chips:
         st.markdown(
             f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;">'

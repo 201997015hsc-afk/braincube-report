@@ -104,8 +104,30 @@ def render(df: pd.DataFrame):
             ctr_label, ctr_bg, ctr_color,
         )
 
-        # CPC 벤치 (집행·클릭 있을 때만)
-        if client_cpc > 0:
+        # 비용 효율 벤치 — DB(전환) 추적 광고주는 CPC 대신 CPA 단가로 측정
+        client_db, client_cpa = 0.0, 0.0
+        if 'DB' in ref_df.columns:
+            _dbr = ref_df[pd.to_numeric(ref_df['DB'], errors='coerce').fillna(0) > 0]
+            if not _dbr.empty:
+                client_db = float(pd.to_numeric(_dbr['DB'], errors='coerce').sum())
+                _db_cost = float(_dbr['집행금액'].sum())
+                client_cpa = (_db_cost / client_db) if client_db > 0 else 0
+
+        if client_cpa > 0 and bench.get('cpa_values'):
+            cpa_pct = calc_percentile_lower(client_cpa, bench['cpa_values'])
+            cpa_label, cpa_bg, cpa_color = percentile_grade(cpa_pct)
+            _avg_cpa = bench.get('avg_cpa', 0)
+            cpa_diff = ((client_cpa - _avg_cpa) / _avg_cpa * 100) if _avg_cpa > 0 else 0
+            cpa_sign = "+" if cpa_diff >= 0 else ""
+            _render_benchmark_row(
+                f"CPA 단가 (DB {client_db:,.0f}건)",
+                f"{client_cpa:,.0f}원",
+                f"{_avg_cpa:,.0f}원",
+                f"{cpa_sign}{cpa_diff:.1f}%",
+                cpa_label, cpa_bg, cpa_color,
+            )
+        elif client_cpc > 0:
+            # DB 미추적 광고주만 CPC 표시
             cpc_pct = calc_percentile_lower(client_cpc, bench['cpc_values'])
             cpc_label, cpc_bg, cpc_color = percentile_grade(cpc_pct)
             cpc_diff = ((client_cpc - bench['avg_cpc']) / bench['avg_cpc'] * 100) if bench['avg_cpc'] > 0 else 0

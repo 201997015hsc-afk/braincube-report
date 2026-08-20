@@ -465,7 +465,7 @@ def render(df: pd.DataFrame):
                 ), unsafe_allow_html=True)
             with d2:
                 st.markdown(_kpi_card_overview(
-                    'CPDB (전환당 비용)', f'{cur_cpdb:,.0f}원',
+                    'CPA 단가 (전환당 비용)', f'{cur_cpdb:,.0f}원',
                     mom_text=mom_cpdb_txt, mom_dir=mom_cpdb_dir,
                     lower_is_better=True,
                 ), unsafe_allow_html=True)

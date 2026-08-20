@@ -83,6 +83,15 @@ def _compute_media_health(df: pd.DataFrame, cur_month: str) -> pd.DataFrame:
     stats['_score'] = stats['_ctr_pct'] * 0.6 + stats['_cpc_pct'] * 0.4
     stats.loc[~stats['_qualified'], '_score'] = np.nan  # 신뢰성 부족 → 등급 보류
 
+    # DB(전환) 매체별 합계 — 있으면 카드에서 CPC 대신 CPA 단가 표시
+    if 'DB' in df.columns:
+        _dbm = df[df['년월'] == cur_month].copy()
+        _dbm['_DBn'] = pd.to_numeric(_dbm['DB'], errors='coerce').fillna(0)
+        _db_map = _dbm.groupby('매체명')['_DBn'].sum()
+        stats['_db_sum'] = stats['매체명'].map(_db_map).fillna(0)
+    else:
+        stats['_db_sum'] = 0.0
+
     return stats
 
 
@@ -106,7 +115,12 @@ def _media_card(row: pd.Series, *, rank: int) -> str:
 
     accent_color = grade_color
 
-    cpc_text = f'{cpc:,.0f}원' if cpc > 0 else '—'
+    # DB(전환) 있는 매체는 CPC 대신 CPA 단가로 비용 효율 표시
+    db_sum = float(row.get('_db_sum', 0) or 0)
+    if db_sum > 0 and cost > 0:
+        cost_label = f'CPA {cost / db_sum:,.0f}원 · DB {db_sum:,.0f}건'
+    else:
+        cost_label = f'CPC {cpc:,.0f}원' if cpc > 0 else 'CPC —'
 
     return (
         f'<div style="border:1px solid {COLOR_BORDER};border-left:3px solid {accent_color};'
@@ -123,7 +137,7 @@ def _media_card(row: pd.Series, *, rank: int) -> str:
         f'      <div style="font-size:0.92rem;color:{COLOR_TEXT};font-weight:600;letter-spacing:-0.005em;">'
         f'{esc_html_safe(name)}</div>'
         f'      <div style="font-size:0.7rem;color:{COLOR_TEXT_SEC};margin-top:2px;">'
-        f'발송 {compact_num(sends, "건")} · CPC {cpc_text}</div>'
+        f'발송 {compact_num(sends, "건")} · {cost_label}</div>'
         f'    </div>'
         # CTR
         f'    <div style="text-align:right;min-width:80px;">'
