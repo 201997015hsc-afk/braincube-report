@@ -212,18 +212,32 @@ def render(df: pd.DataFrame):
         render_empty_state('월 데이터가 없습니다', icon='📭')
         return
 
-    cur_month = months[-1]
-    n_media = df[df['년월'] == cur_month]['매체명'].nunique() if '매체명' in df.columns else 0
-
     render_page_header(
         title='매체 성과',
         kicker='분석',
         subtitle=(
-            f'<b>{cur_month}</b> 기준 운영 매체 <b>{n_media}개</b>. '
-            f'헬스 스코어가 높은 순으로 표시되며, 발송 <b>{MIN_SENDS_FOR_CTR_CLAIM:,}건</b> '
+            f'월별 매체 헬스 스코어와 추이. 발송 <b>{MIN_SENDS_FOR_CTR_CLAIM:,}건</b> '
             f'이상인 매체만 A~D 등급 산정.'
         ),
     )
+
+    # ── 분석 월 선택 (기본: 최신 월) ──
+    col_m, col_cap = st.columns([1.2, 3])
+    with col_m:
+        cur_month = st.selectbox(
+            '분석 월', months, index=len(months) - 1,
+            key='media_ov_month', label_visibility='collapsed',
+        )
+    n_media = df[df['년월'] == cur_month]['매체명'].nunique() if '매체명' in df.columns else 0
+    with col_cap:
+        st.markdown(
+            f'<div style="font-size:0.8rem;color:{COLOR_TEXT_SEC};padding-top:8px;">'
+            f'<b style="color:{COLOR_TEXT};">{esc_html_safe(cur_month)}</b> 기준 · '
+            f'운영 매체 <b style="color:{COLOR_TEXT};">{n_media}개</b> · '
+            f'다른 달을 선택하면 아래 전체가 해당 월 기준으로 바뀝니다</div>',
+            unsafe_allow_html=True,
+        )
+    st.markdown('<div class="space-sm"></div>', unsafe_allow_html=True)
 
     # ── 헬스 스코어 계산 ──
     stats = _compute_media_health(df, cur_month)
@@ -366,6 +380,75 @@ def render(df: pd.DataFrame):
 
         # 집중도 미니 바
         st.markdown(_concentration_bar(stats), unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════
+    # 매체 × 월 매트릭스 — 월별 추이 한 표로
+    # ══════════════════════════════════════════════
+    if len(months) >= 2:
+        st.markdown('<div class="space-lg"></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="font-size:0.95rem;font-weight:600;color:{COLOR_TEXT};'
+            f'margin-bottom:6px;letter-spacing:-0.01em;">매체 × 월별 성과</div>'
+            f'<div style="font-size:0.75rem;color:{COLOR_TEXT_SEC};margin-bottom:10px;">'
+            f'지표를 선택하면 전체 기간의 월별 매트릭스로 표시됩니다.</div>',
+            unsafe_allow_html=True,
+        )
+
+        # 지표 옵션 — DB 데이터 있으면 DB·CPA 단가 추가
+        _has_db_any = (
+            'DB' in df.columns
+            and (pd.to_numeric(df['DB'], errors='coerce').fillna(0) > 0).any()
+        )
+        _metric_opts = ['발송량', '클릭수', 'CTR(%)', '집행금액']
+        if _has_db_any:
+            _metric_opts += ['DB', 'CPA단가(원)']
+        metric = st.radio(
+            '지표', _metric_opts, horizontal=True,
+            key='media_ov_matrix_metric', label_visibility='collapsed',
+        )
+
+        # 월별 집계
+        _mm = df.copy()
+        _mm['_DBn'] = (
+            pd.to_numeric(_mm['DB'], errors='coerce').fillna(0)
+            if 'DB' in _mm.columns else 0
+        )
+        agg = _mm.groupby(['매체명', '년월']).agg(
+            발송량=('발송량', 'sum'),
+            클릭수=('클릭수', lambda x: x.fillna(0).sum()),
+            집행금액=('집행금액', 'sum'),
+            DB=('_DBn', 'sum'),
+        ).reset_index()
+        agg['CTR(%)'] = np.where(agg['발송량'] > 0, agg['클릭수'] / agg['발송량'] * 100, np.nan)
+        agg['CPA단가(원)'] = np.where(agg['DB'] > 0, agg['집행금액'] / agg['DB'], np.nan)
+
+        pivot = agg.pivot_table(index='매체명', columns='년월', values=metric, aggfunc='first')
+        pivot = pivot.reindex(columns=months)
+        # 총 발송량 큰 매체부터
+        _order = (
+            agg.groupby('매체명')['발송량'].sum().sort_values(ascending=False).index
+        )
+        pivot = pivot.reindex(_order)
+
+        # 포맷: CTR 소수 2자리, 나머지 천단위 정수. 값 없음은 '—'
+        def _fmt(v):
+            if pd.isna(v):
+                return '—'
+            if metric == 'CTR(%)':
+                return f'{v:.2f}'
+            return f'{v:,.0f}'
+
+        display = pivot.map(_fmt)
+        display.index.name = '매체명'
+        st.dataframe(
+            display,
+            use_container_width=True,
+            height=min(420, 56 + len(display) * 36),
+        )
+        if metric == 'CPA단가(원)':
+            st.caption('CPA 단가 = 해당 월 광고비 ÷ DB. DB 없는 월은 — 표시.')
+        elif metric == 'CTR(%)':
+            st.caption('CTR = 클릭 ÷ 발송. DA·CPA 상품처럼 발송이 없는 매체는 — 표시.')
 
     # ── 하단 안내 ──
     st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
