@@ -11,7 +11,7 @@ from modules.config import (
     COLOR_TEXT, COLOR_TEXT_SEC, COLOR_TEXT_TER,
     COLOR_BORDER, COLOR_BORDER_SUBTLE, COLOR_BG,
 )
-from modules.data_processing import aggregate_metrics, calc_ctr_scalar, render_ref_period_selector
+from modules.data_processing import aggregate_metrics, calc_ctr_scalar, render_ref_period_selector, is_db_driven
 from modules.firebase_connector import (
     get_benchmark_stats, calc_percentile, calc_percentile_lower, percentile_grade,
 )
@@ -106,7 +106,7 @@ def render(df: pd.DataFrame):
 
         # 비용 효율 벤치 — DB(전환) 추적 광고주는 CPC 대신 CPA 단가로 측정
         client_db, client_cpa = 0.0, 0.0
-        if 'DB' in ref_df.columns:
+        if 'DB' in ref_df.columns and is_db_driven(df):
             _dbr = ref_df[pd.to_numeric(ref_df['DB'], errors='coerce').fillna(0) > 0]
             if not _dbr.empty:
                 client_db = float(pd.to_numeric(_dbr['DB'], errors='coerce').sum())

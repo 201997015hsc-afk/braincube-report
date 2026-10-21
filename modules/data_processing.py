@@ -267,3 +267,27 @@ def load_and_preprocess(uploaded_file, sheet_name: str | None = None) -> tuple[p
         return None, None
 
     return df, display_sheet
+
+
+# ──────────────────────────────────────────────
+# 전환(DB) KPI 사용 가능 여부
+# ──────────────────────────────────────────────
+# 일부 광고주는 DB(전환)를 우리에게 전달해 주지 않아, DB 칸이 0으로만 채워진다.
+#   예) 윙크 — DB 기록 73건 중 71건(97%)이 0 / 캐츠잉글리시 — 57건 중 51건(89%)이 0
+#   이 0은 "전환 실패"가 아니라 "데이터 미수신"이므로 성과로 해석하면 안 된다.
+#   → 이런 광고주는 CTR을 기준으로 평가하고, DB·CPA 지표는 아예 노출하지 않는다.
+DB_DRIVEN_MIN_CAMPAIGNS = 10   # DB>0 캠페인 최소 건수
+DB_DRIVEN_MIN_RATIO = 0.20     # 전체 캠페인 대비 최소 비율
+
+
+def is_db_driven(df) -> bool:
+    """이 광고주에게 DB(전환)가 유효한 KPI인지 판정.
+
+    True  → DB/CPA 지표를 성과로 사용 (온리원·밀크T·아이스크림홈런·엘리하이·엠베스트)
+    False → DB 미수신으로 보고 CTR 기준으로 평가 (윙크·캐츠잉글리시)
+    """
+    if df is None or len(df) == 0 or 'DB' not in getattr(df, 'columns', []):
+        return False
+    db = pd.to_numeric(df['DB'], errors='coerce').fillna(0)
+    pos = int((db > 0).sum())
+    return pos >= DB_DRIVEN_MIN_CAMPAIGNS and pos / max(len(df), 1) >= DB_DRIVEN_MIN_RATIO

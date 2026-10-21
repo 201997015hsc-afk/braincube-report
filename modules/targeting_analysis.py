@@ -636,7 +636,8 @@ def render(df: pd.DataFrame):
     # ═══════════════════════════════════════════════
     # 💰 DB 기준 베스트 타겟 — 전환 추적 캠페인만 (CPA 포함)
     # ═══════════════════════════════════════════════
-    if 'DB' in df.columns:
+    from modules.data_processing import is_db_driven as _is_db_driven
+    if 'DB' in df.columns and _is_db_driven(df):
         db_pool = df[df['타겟'].notna() & (df['타겟'].astype(str).str.strip() != '')].copy()
         db_pool['_DB'] = pd.to_numeric(db_pool['DB'], errors='coerce').fillna(0)
         db_pool = db_pool[(db_pool['_DB'] >= 3) & (db_pool['집행금액'].fillna(0) > 0)]
@@ -1067,7 +1068,7 @@ def render(df: pd.DataFrame):
 
     # DB·CPDB 파생 (전환 추적 캠페인이 있을 때만 컬럼 노출)
     _show_db = False
-    if 'DB' in table_df.columns:
+    if 'DB' in table_df.columns and _is_db_driven(df):
         table_df['_DB_num'] = pd.to_numeric(table_df['DB'], errors='coerce').fillna(0)
         if (table_df['_DB_num'] > 0).any():
             _show_db = True

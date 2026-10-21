@@ -20,7 +20,7 @@ from modules.config import (
     COLOR_CARD, COLOR_BG, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING, COLOR_BLUE,
     BRAND_PRIMARY, compact_num,
 )
-from modules.data_processing import calc_ctr_scalar, media_month_stats
+from modules.data_processing import calc_ctr_scalar, media_month_stats, is_db_driven
 from modules.ui_helpers import render_page_header, render_empty_state, esc_html_safe
 from modules.firebase_connector import get_benchmark_stats
 
@@ -458,7 +458,8 @@ def render(df: pd.DataFrame):
 
     # ── DB(전환) 성과 — 전환 추적 캠페인이 있는 광고주만 표시 ──
     # DB = 가입/상담신청 등 전환 수. CPDB = DB보유 캠페인 광고비 ÷ DB.
-    if 'DB' in df.columns:
+    # DB를 광고주로부터 전달받는 경우에만 전환 지표를 노출 (미수신 0을 성과로 읽지 않음)
+    if 'DB' in df.columns and is_db_driven(df):
         _db_cur = cur[pd.to_numeric(cur['DB'], errors='coerce').fillna(0) > 0].copy()
         # 당월 전환이 없어도 과거 전환 실적이 있으면 숨기지 않고
         # 가장 최근 전환이 있었던 월 기준으로 보여준다 (CPA가 사라지는 문제 방지)

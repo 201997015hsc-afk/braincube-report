@@ -28,12 +28,22 @@ from modules.config import (
     CHILD_STAGE_KEYWORDS,
 )
 from modules.ui_helpers import render_page_header, render_empty_state, esc_html_safe
+from modules.data_processing import is_db_driven as _shared_is_db_driven
 
 _DORMANT_DAYS = 90      # 휴면 판정 기준
 _NEW_MEDIA_DAYS = 60    # 업종 내 신규 매체 판정 기준
 _REF_WINDOW_DAYS = 180  # 동종업계 레퍼런스 조회 기간
 _DEFAULT_QTY = 50_000   # 기본 권장 발송량
-_MIN_DB_FOR_JUDGE = 3   # 이 이상 DB가 쌓여야 CPA로 성과를 판정
+# DB가 1건만 나온 매체도 CPA로 판정한다.
+#   DB 1~2건은 "표본 부족"이 아니라 대부분 **실제로 효율이 나쁜 것**이다.
+#   (실사례: 밀크T 출결선생 DB 2건/550만원 = CPA 275만원,
+#            아이스크림홈런 하나카드 DB 2건/500만원 = CPA 250만원)
+#   기존 기준(3건)에서는 이들이 CTR 판정으로 넘어가 증액 후보가 될 수 있었다.
+_MIN_DB_FOR_JUDGE = 1
+
+# 전환(DB)이 핵심 KPI인 광고주인지 판정하는 기준
+_DB_DRIVEN_MIN_CAMPAIGNS = 10   # DB>0 캠페인 최소 건수
+_DB_DRIVEN_MIN_RATIO = 0.20     # 전체 캠페인 대비 비율
 
 # 자녀 연령 스테이지 매칭과 고정 CPA 기준(500만원/30건)은 **교육 업종 전용**이다.
 # 보험·수송 등은 KPI 정의와 전환 단가 수준이 완전히 달라 같은 기준을 쓰면 안 된다.
@@ -142,6 +152,20 @@ def _cpa_grade(cpa: float) -> tuple[str, str]:
     if cpa <= POOR_CPA:
         return '보통', COLOR_WARNING
     return '부진', COLOR_DANGER
+
+
+def _is_db_driven(me: pd.DataFrame) -> bool:
+    """이 광고주에게 DB(전환)가 핵심 KPI인지.
+
+    DB를 실제로 받아내는 광고주(온리원·밀크T·아이스크림홈런 등)와,
+    DB 칸은 있지만 전환이 거의 없는 CTR 중심 광고주(윙크·캐츠잉글리시)를 구분한다.
+    DB 중심 광고주는 '전환 0건' 매체를 증액 후보에서 제외해야 한다.
+    """
+    if me is None or me.empty or 'DB' not in me.columns:
+        return False
+    db = pd.to_numeric(me['DB'], errors='coerce').fillna(0)
+    pos = int((db > 0).sum())
+    return pos >= _DB_DRIVEN_MIN_CAMPAIGNS and pos / max(len(me), 1) >= _DB_DRIVEN_MIN_RATIO
 
 
 def _db_perf(rows: pd.DataFrame, *, good_cpa: float = GOOD_CPA) -> dict | None:
@@ -331,6 +355,7 @@ def build_recommendations(
     # ── 📈 증액 (최근 2개월 자사 성과 우수) ──
     # ⚠ DB(전환) 추적 매체는 CTR이 아니라 **CPA 단가**로 판정한다.
     #   CTR이 높아도 전환이 안 되면 광고주 입장에선 실패한 캠페인이다.
+    db_driven = _shared_is_db_driven(me)
     recent_all = me[me['_d'] >= latest - pd.Timedelta(days=62)]
     recent_q = me_q[me_q['_d'] >= latest - pd.Timedelta(days=62)]
     if not recent_q.empty or not recent_all.empty:
@@ -340,7 +365,18 @@ def build_recommendations(
         for media in sorted(set(recent_all['매체'].dropna().astype(str))):
             m_all = recent_all[recent_all['매체'].astype(str) == media]
             m_q = recent_q[recent_q['매체'].astype(str) == media]
-            perf = _db_perf(m_all, good_cpa=good_cpa)   # DB 기준 성과 (있으면 우선)
+            # DB를 전달받는 광고주일 때만 CPA로 판정한다.
+            # (미수신 광고주는 우연히 기록된 1~2건으로 CPA가 계산돼 왜곡된다 —
+            #  예: 윙크 헬로100 DB 2건/4만원 → CPA 2만원으로 '양호' 오판)
+            perf = _db_perf(m_all, good_cpa=good_cpa) if db_driven else None
+
+            # DB가 핵심 KPI인 광고주인데 이 매체에서 전환이 0건이면
+            # CTR이 아무리 좋아도 증액 대상이 아니다 (광고주 기준 실패)
+            if perf is None and db_driven:
+                _tracked = pd.to_numeric(m_all.get('DB'), errors='coerce')
+                _spend = pd.to_numeric(m_all['광고비'], errors='coerce').fillna(0).sum()
+                if _tracked is not None and _tracked.notna().any() and _spend > 0:
+                    continue
 
             if perf is not None:
                 # 전환 기준 평가 — 기준 CPA 초과면 증액 대상에서 제외
@@ -428,6 +464,7 @@ def build_recommendations(
         r['_meta'] = {
             'my_stage': my_stage, 'my_dist': my_dist,
             'stage_filtered': stage_filtered, 'good_cpa': good_cpa,
+            'db_driven': db_driven,
             'use_stage': use_stage,
         }
         out.append(r)

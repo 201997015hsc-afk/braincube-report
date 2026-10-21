@@ -629,8 +629,18 @@ def get_benchmark_stats(industry: str = None) -> dict | None:
     cpc_vals = has_click['_CPC'].dropna()
 
     # CPA(전환당 비용) 벤치마크 — DB(전환) 추적 캠페인만: 광고비 ÷ DB
+    # ⚠ DB를 전달받지 못하는 광고주(대부분 0으로 기록)는 분포에서 제외한다.
+    #    소수의 비정상 표본이 업종 CPA 기준을 왜곡한다.
     if 'DB' in df.columns:
         _db_rows = df[pd.to_numeric(df['DB'], errors='coerce').fillna(0) > 0].copy()
+        if '_브랜드' in df.columns and not _db_rows.empty:
+            try:
+                from modules.data_processing import is_db_driven as _is_dbd
+                _valid = {b for b, g in df.groupby('_브랜드') if _is_dbd(g)}
+                if _valid:
+                    _db_rows = _db_rows[_db_rows['_브랜드'].isin(_valid)]
+            except Exception:
+                pass
     else:
         _db_rows = df.iloc[0:0]
     if not _db_rows.empty:
