@@ -1203,7 +1203,9 @@ def render(df: pd.DataFrame):
         kicker='운영',
         subtitle=(
             '휴면 매체 복귀 · 동종업계 검증 신규 매체 · 성과 우수 매체 증액 · '
-            '업종 신규 매체를 자동으로 추려 <b>예상 CTR · 예산 · 타겟</b>까지 제안합니다.'
+            '업종 신규 매체를 추려 <b>예상 DB·CPA(전환 실측이 있는 매체)</b> 또는 '
+            '<b>예상 CTR</b>과 함께 물량 · 예산 · 타겟까지 제안합니다. '
+            '실행 예산을 입력하면 그 금액에 맞춰 믹스를 구성합니다.'
         ),
     )
 
@@ -1276,6 +1278,14 @@ def render(df: pd.DataFrame):
                   '이 예산 안에 들어가는 제안만 실행분으로 보고, 넘는 제안은 '
                   '추가 후보로 내립니다.'),
         )
+    st.markdown(
+        f'<div style="font-size:0.72rem;color:{COLOR_TEXT_TER};margin:-6px 0 6px;">'
+        f'{esc_html_safe(brand)} · {esc_html_safe(industry)} 업종 기준'
+        + (f' · 최근 6개월 월 집행액 중앙값 {compact_num(auto_budget, "원")}'
+           if auto_budget else '')
+        + '</div>',
+        unsafe_allow_html=True,
+    )
     view = recs if sel == '전체' else [r for r in recs if r['type'] == sel]
 
     # 우선순위 순서대로 예산을 채운다. 들어가지 않는 제안은 건너뛰고
