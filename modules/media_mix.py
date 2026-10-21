@@ -71,6 +71,14 @@ _TYPE_CAP = {'📈 증액': 4, '🔁 휴면 복귀': 4, '🆕 신규 진입': 5,
 # 믹스를 내밀면 제안서로 쓸 수 없다.
 _BUDGET_FIT_MULT = 1.1
 
+# 예산에 맞춰 물량을 줄일 때의 하한. 이보다 작으면 집행 의미가 없어
+# 그 매체는 넣지 않고 다음 후보를 본다.
+_MIN_PLAN_QTY = {'LMS': 10_000, '카플친': 10_000, '앱푸시': 30_000, '성과형': 5}
+
+# 물량을 늘릴 때의 상한 배수. 과거 집행 규모의 2배를 넘기면
+# 매체가 소화하지 못하거나 단가 조건이 달라진다.
+_MAX_QTY_SCALE = 2.0
+
 # 광고상품을 실제로 사는 단위 4개로 묶는다. 데이터에는 LMS·MMS·실시간 발송처럼
 # 같은 채널이 다른 이름으로 들어와 있어서, 그대로 두면 매체×상품 전환율이
 # 쪼개져 표본이 1건씩 흩어진다.
@@ -1140,8 +1148,12 @@ def _rec_card(r: dict, rank: int) -> str:
            f'CTR 기준</span>' if r.get('ctr_only') else '')
         + (f'      <span style="font-size:0.6rem;color:{COLOR_TEXT_TER};'
            f'border:1px dashed {COLOR_BORDER};padding:1px 6px;border-radius:999px;"'
-           f' title="최근 월 집행액을 넘는 추가 후보입니다">추가 후보</span>'
+           f' title="입력한 실행 예산을 넘는 추가 후보입니다">추가 후보</span>'
            if r.get('overflow') else '')
+        + (f'      <span style="font-size:0.6rem;color:{COLOR_TEXT_SEC};'
+           f'background:{COLOR_BG};padding:1px 6px;border-radius:999px;"'
+           f' title="남은 예산에 맞춰 물량을 조정했습니다">예산 맞춤</span>'
+           if r.get('qty_adjusted') else '')
         + f'    </div>'
         f'    <div style="text-align:right;">'
         + (
@@ -1268,29 +1280,65 @@ def render(df: pd.DataFrame):
         sel = st.radio('제안 유형', types, horizontal=True,
                        key='mix_type', label_visibility='collapsed')
     with col_b:
-        budget_cap = st.number_input(
-            '실행 예산(원)', min_value=0, step=1_000_000,
-            value=int(default_budget), key=f'mix_budget_{brand}',
+        # 천 단위 콤마를 보여주려고 number_input 대신 text_input 을 쓴다.
+        # (number_input 은 원 단위 숫자를 콤마 없이 그대로 노출한다)
+        _raw = st.text_input(
+            '실행 예산(원)', value=f'{int(default_budget):,}',
+            key=f'mix_budget_{brand}',
             help=(f'이 예산 안에 들어가는 제안만 실행분으로 보고, 넘는 제안은 '
-                  f'추가 후보로 내립니다. 기본값은 최근 6개월 월 집행액 중앙값'
-                  f'({compact_num(auto_budget, "원")})의 '
+                  f'추가 후보로 내립니다. 잔액이 남으면 다음 후보의 물량을 '
+                  f'잔액에 맞춰 줄여 넣습니다. 기본값은 최근 6개월 월 집행액 '
+                  f'중앙값({compact_num(auto_budget, "원")})의 '
                   f'{_BUDGET_FIT_MULT:.1f}배입니다.' if auto_budget else
                   '이 예산 안에 들어가는 제안만 실행분으로 보고, 넘는 제안은 '
                   '추가 후보로 내립니다.'),
         )
+        _digits = re.sub(r'[^0-9]', '', _raw or '')
+        budget_cap = int(_digits) if _digits else 0
     st.markdown(
         f'<div style="font-size:0.72rem;color:{COLOR_TEXT_TER};margin:-6px 0 6px;">'
         f'{esc_html_safe(brand)} · {esc_html_safe(industry)} 업종 기준'
         + (f' · 최근 6개월 월 집행액 중앙값 {compact_num(auto_budget, "원")}'
            if auto_budget else '')
+        + (f' · 입력 예산 <b>{budget_cap:,}원</b>({compact_num(budget_cap, "원")})'
+           if budget_cap else ' · 예산 상한 없음')
         + '</div>',
         unsafe_allow_html=True,
     )
-    view = recs if sel == '전체' else [r for r in recs if r['type'] == sel]
+    # 캐시된 제안을 직접 고치지 않도록 복사해서 쓴다
+    view = [dict(r) for r in
+            (recs if sel == '전체' else [r for r in recs if r['type'] == sel])]
 
-    # 우선순위 순서대로 예산을 채운다. 들어가지 않는 제안은 건너뛰고
-    # 다음 제안을 보므로 남은 예산이 최대한 쓰인다 (우선순위는 유지).
-    # 첫 제안은 예산을 넘더라도 남겨 둔다 (빈 목록보다 낫다).
+    def _rescale(r: dict, new_qty: int) -> None:
+        """물량을 바꾸고 비례하는 값들을 다시 계산한다.
+
+        예상 CPA = 단가 ÷ 전환율이라 물량과 무관하므로 등급은 그대로다.
+        """
+        old = float(r.get('qty') or 0) or 1.0
+        f = new_qty / old
+        r['qty'] = int(new_qty)
+        r['budget'] = int(round(new_qty * float(r.get('unit') or 0)))
+        r['exp_clicks'] = int(new_qty * float(r.get('ctr') or 0) / 100)
+        if r.get('exp_db'):
+            r['exp_db'] = float(r['exp_db']) * f
+        r['qty_adjusted'] = True
+
+    def _fit_qty(r: dict, money: float) -> int:
+        """주어진 금액으로 살 수 있는 물량 (단위 절삭). 안 되면 0."""
+        unit = float(r.get('unit') or 0)
+        if unit <= 0 or r.get('product') == 'DA':
+            return 0        # DA는 노출·기간 패키지라 쪼개지 않는다
+        q = money / unit
+        if r.get('cpa_product'):
+            q = int(q)      # 성과형은 DB 건수
+            lo = _MIN_PLAN_QTY['성과형']
+        else:
+            q = int(q // 1000 * 1000)
+            lo = _MIN_PLAN_QTY.get(r.get('product'), 10_000)
+        return q if q >= lo else 0
+
+    # ① 우선순위대로 예산을 채운다. 들어가지 않으면 건너뛰고 다음을 본다.
+    #    첫 제안은 예산을 넘더라도 남겨 둔다 (빈 목록보다 낫다).
     _acc = 0.0
     for i, r in enumerate(view):
         _b = float(r['budget'])
@@ -1299,6 +1347,47 @@ def render(df: pd.DataFrame):
             r['overflow'] = False
         else:
             r['overflow'] = True
+
+    # ② 잔액이 남으면 다음 후보를 **잔액에 맞춘 물량**으로 넣는다.
+    #    "광고주가 1,000만원 쓴다"고 하면 1,000만원을 다 써야 제안서가 된다.
+    if budget_cap:
+        for r in view:
+            left = budget_cap - _acc
+            if left <= 0:
+                break
+            if not r.get('overflow'):
+                continue
+            q = _fit_qty(r, left)
+            if not q:
+                continue
+            _rescale(r, q)
+            r['overflow'] = False
+            _acc += float(r['budget'])
+
+    # ③ 그래도 남으면 우선순위가 높은 제안부터 물량을 늘려 잔액을 쓴다.
+    #    매체당 과거 집행 규모의 2배까지만 — 그 이상은 매체가 소화하지
+    #    못하거나 단가 조건이 달라진다. 여기서도 남으면 잔액으로 표시한다.
+    if budget_cap:
+        for r in view:
+            left = budget_cap - _acc
+            if left <= 0:
+                break
+            if r.get('overflow') or r.get('product') == 'DA':
+                continue
+            unit = float(r.get('unit') or 0)
+            if unit <= 0:
+                continue
+            step = 1 if r.get('cpa_product') else 1000
+            add = int(left / unit // step * step)
+            if add <= 0:
+                continue
+            cur = int(r['qty'])
+            new_q = min(cur + add, int(cur * _MAX_QTY_SCALE))
+            if new_q <= cur:
+                continue
+            _acc -= float(r['budget'])
+            _rescale(r, new_q)
+            _acc += float(r['budget'])
 
     # 레퍼런스 범위 안내 — 어떤 기준으로 비교했는지 투명하게
     if meta.get('use_stage'):
@@ -1443,7 +1532,8 @@ def render(df: pd.DataFrame):
                 '예산': f'{r["budget"]:,}원',
                 '예상 성과': _perf_txt(r),
                 '등급': r.get('exp_grade') or ('CTR 기준' if r.get('ctr_only') else '—'),
-                '비고': '추가 후보' if r.get('overflow') else '',
+                '비고': ('추가 후보' if r.get('overflow') else
+                       '예산 맞춤' if r.get('qty_adjusted') else ''),
                 '최근 집행': (f'{r["history"][0]["date"]:%y.%m.%d}'
                            + (f' ({r.get("history_src")})' if r.get('history_src') else '')
                            if r.get('history') else '—'),
