@@ -154,6 +154,64 @@ def _cpa_grade(cpa: float) -> tuple[str, str]:
     return '부진', COLOR_DANGER
 
 
+def _db_rate_table(df: pd.DataFrame) -> dict:
+    """매체별 '발송 1만건당 DB 인입수'와 상품별/전체 평균을 계산.
+
+    DB 예상치의 근거가 되는 전환율 테이블.
+    CPA 상품은 발송 개념이 없어(물량=DB 과금 단위) 별도로 다룬다.
+    """
+    out = {'media': {}, 'product': {}, 'overall': None}
+    if df is None or df.empty or 'DB' not in df.columns:
+        return out
+    d = df.copy()
+    d['_db'] = pd.to_numeric(d['DB'], errors='coerce')
+    d = d[d['_db'].notna()]
+    if d.empty:
+        return out
+    d['_snd'] = pd.to_numeric(d.get('발송건'), errors='coerce').fillna(0)
+    msg = d[~d['광고상품'].astype(str).str.upper().isin(['DA', 'CPA'])]
+    msg = msg[msg['_snd'] > 0]
+    if not msg.empty:
+        for media, g in msg.groupby('매체'):
+            snd = float(g['_snd'].sum())
+            if snd <= 0:
+                continue
+            out['media'][str(media)] = {
+                'rate': float(g['_db'].sum()) / snd * 10000,
+                'n': len(g), 'db': float(g['_db'].sum()),
+            }
+        for prod, g in msg.groupby('광고상품'):
+            snd = float(g['_snd'].sum())
+            if snd > 0:
+                out['product'][str(prod)] = float(g['_db'].sum()) / snd * 10000
+        tot_snd = float(msg['_snd'].sum())
+        if tot_snd > 0:
+            out['overall'] = float(msg['_db'].sum()) / tot_snd * 10000
+    return out
+
+
+def _expect_db(media: str, qty: int, *, my_tbl: dict, ref_tbl: dict,
+               product: str = 'LMS') -> tuple[float | None, str]:
+    """추천 물량에 대한 예상 DB 인입수와 그 근거.
+
+    우선순위: 자사 해당 매체 → 동종업계(같은 학령) 해당 매체
+              → 자사 상품 평균 → 자사 전체 평균
+    """
+    m = my_tbl.get('media', {}).get(media)
+    if m and m['n'] >= 1:
+        return qty * m['rate'] / 10000, f'자사 {media} 실적 {m["n"]}건'
+    r = ref_tbl.get('media', {}).get(media)
+    if r and r['n'] >= 2:
+        return qty * r['rate'] / 10000, f'동종업계 {media} {r["n"]}건'
+    p = my_tbl.get('product', {}).get(product)
+    if p:
+        return qty * p / 10000, f'자사 {product} 평균 전환율'
+    o = my_tbl.get('overall')
+    if o:
+        return qty * o / 10000, '자사 전체 평균 전환율'
+    return None, ''
+
+
 def _is_db_driven(me: pd.DataFrame) -> bool:
     """이 광고주에게 DB(전환)가 핵심 KPI인지.
 
@@ -356,6 +414,20 @@ def build_recommendations(
     # ⚠ DB(전환) 추적 매체는 CTR이 아니라 **CPA 단가**로 판정한다.
     #   CTR이 높아도 전환이 안 되면 광고주 입장에선 실패한 캠페인이다.
     db_driven = _shared_is_db_driven(me)
+    # 예상 DB·CPA 산출용 전환율 테이블 (자사 우선, 동종업계 보조)
+    my_tbl = _db_rate_table(me) if db_driven else {'media': {}, 'product': {}, 'overall': None}
+    ref_tbl = _db_rate_table(others) if db_driven else {'media': {}, 'product': {}, 'overall': None}
+    # 자사 기준선: 메시징 평균 CPA (매체 선별의 비교 기준)
+    my_cpa_base = None
+    if db_driven:
+        _m = me[~me['광고상품'].astype(str).str.upper().isin(['DA', 'CPA'])].copy()
+        _m['_db'] = pd.to_numeric(_m['DB'], errors='coerce')
+        _m = _m[_m['_db'].fillna(0) > 0]
+        if not _m.empty:
+            _c = pd.to_numeric(_m['광고비'], errors='coerce').fillna(0).sum()
+            _d = float(_m['_db'].sum())
+            if _d > 0:
+                my_cpa_base = _c / _d
     recent_all = me[me['_d'] >= latest - pd.Timedelta(days=62)]
     recent_q = me_q[me_q['_d'] >= latest - pd.Timedelta(days=62)]
     if not recent_q.empty or not recent_all.empty:
@@ -458,13 +530,34 @@ def build_recommendations(
         # CTR·CPA 어느 쪽으로도 근거가 없으면 제안하지 않는다
         if float(r.get('ctr') or 0) <= 0 and not r.get('cpa'):
             continue
-        seen.add(r['media'])
         r['budget'] = int(r['qty'] * r['unit'])
         r['exp_clicks'] = int(r['qty'] * r['ctr'] / 100)
+
+        # ── DB 광고주: 예상 DB 인입수 · 예상 CPA 산출 ──
+        if db_driven:
+            _prod = 'LMS'
+            _mrows = me[me['매체'].astype(str) == r['media']]
+            if not _mrows.empty and '광고상품' in _mrows.columns:
+                _pv = _mrows['광고상품'].dropna()
+                if not _pv.empty:
+                    _prod = str(_pv.mode().iloc[0])
+            exp_db, db_src = _expect_db(r['media'], r['qty'],
+                                        my_tbl=my_tbl, ref_tbl=ref_tbl, product=_prod)
+            if exp_db and exp_db > 0:
+                r['exp_db'] = exp_db
+                r['exp_db_src'] = db_src
+                r['exp_cpa'] = r['budget'] / exp_db
+                # 선별 기준: 예상 CPA가 자사 평균(없으면 업종 기준)보다 나빠야 제외
+                _limit = my_cpa_base if my_cpa_base else good_cpa
+                if r['exp_cpa'] > _limit * 1.2:
+                    continue
+            elif r.get('cpa'):
+                r['exp_cpa'] = r['cpa']
+        seen.add(r['media'])
         r['_meta'] = {
             'my_stage': my_stage, 'my_dist': my_dist,
             'stage_filtered': stage_filtered, 'good_cpa': good_cpa,
-            'db_driven': db_driven,
+            'db_driven': db_driven, 'my_cpa_base': my_cpa_base,
             'use_stage': use_stage,
         }
         out.append(r)
@@ -514,17 +607,26 @@ def _rec_card(r: dict, rank: int) -> str:
         f'{esc_html_safe(r["media"])}</span>'
         f'    </div>'
         f'    <div style="text-align:right;">'
-        f'      <div style="font-size:1.25rem;color:{tone};font-weight:700;line-height:1;">'
-        f'{r["ctr"]:.2f}%</div>'
-        f'      <div style="font-size:0.6rem;color:{COLOR_TEXT_TER};margin-top:2px;">'
-        f'예상 CTR · {esc_html_safe(r["ctr_src"])}</div>'
-        f'    </div>'
+        + (
+            f'      <div style="font-size:1.25rem;color:{tone};font-weight:700;line-height:1;">'
+            f'{float(r["exp_cpa"]):,.0f}원</div>'
+            f'      <div style="font-size:0.6rem;color:{COLOR_TEXT_TER};margin-top:2px;">'
+            f'예상 CPA 단가</div>'
+            if r.get('exp_cpa') else
+            f'      <div style="font-size:1.25rem;color:{tone};font-weight:700;line-height:1;">'
+            f'{r["ctr"]:.2f}%</div>'
+            f'      <div style="font-size:0.6rem;color:{COLOR_TEXT_TER};margin-top:2px;">'
+            f'예상 CTR · {esc_html_safe(r["ctr_src"])}</div>'
+        )
+        + f'    </div>'
         f'  </div>'
         # 근거
         f'  <div style="font-size:0.78rem;color:{COLOR_TEXT_SEC};line-height:1.5;">'
         f'{esc_html_safe(r["why"])}</div>'
         f'  <div style="font-size:0.68rem;color:{COLOR_TEXT_TER};margin-top:2px;">'
-        f'{esc_html_safe(r["evidence"])}</div>'
+        f'{esc_html_safe(r["evidence"])}'
+        + (f' · 전환율 근거: {esc_html_safe(r["exp_db_src"])}' if r.get('exp_db_src') else '')
+        + f'</div>'
         f'  {cpa_html}'
         # 제안 수치
         f'  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;'
@@ -533,8 +635,15 @@ def _rec_card(r: dict, rank: int) -> str:
         f'<div style="font-size:0.85rem;color:{COLOR_TEXT};font-weight:700;">{r["qty"]:,}건</div></div>'
         f'    <div><div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};font-weight:600;">추천 예산</div>'
         f'<div style="font-size:0.85rem;color:{COLOR_TEXT};font-weight:700;">{compact_num(r["budget"], "원")}</div></div>'
-        f'    <div><div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};font-weight:600;">예상 클릭</div>'
-        f'<div style="font-size:0.85rem;color:{COLOR_TEXT};font-weight:700;">{r["exp_clicks"]:,}회</div></div>'
+        + (
+            f'    <div><div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};font-weight:600;">예상 DB 인입</div>'
+            f'<div style="font-size:0.85rem;color:{COLOR_SUCCESS};font-weight:700;">'
+            f'{float(r["exp_db"]):.0f}건</div></div>'
+            if r.get('exp_db') else
+            f'    <div><div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};font-weight:600;">예상 클릭</div>'
+            f'<div style="font-size:0.85rem;color:{COLOR_TEXT};font-weight:700;">{r["exp_clicks"]:,}회</div></div>'
+        )
+        +
         f'  </div>'
         f'  {target_html}'
         f'</div>'
@@ -633,12 +742,26 @@ def render(df: pd.DataFrame):
             unsafe_allow_html=True,
         )
     gcpa = float(meta.get('good_cpa') or GOOD_CPA)
+    base = meta.get('my_cpa_base')
+    if meta.get('db_driven'):
+        limit_txt = (f'자사 평균 CPA <b>{base:,.0f}원</b>의 1.2배 이내'
+                     if base else f'업종 기준 <b>{gcpa:,.0f}원</b>의 1.2배 이내')
+        criteria = (
+            f'이 광고주는 DB(전환)를 받으므로 <b>예상 DB 인입수·예상 CPA</b>로 선별합니다. '
+            f'기준: {limit_txt}인 매체만 제안 · '
+            f'예상 DB = 추천 물량 × 전환율(자사 해당 매체 → 동종업계 → 자사 평균 순으로 적용)'
+        )
+    else:
+        criteria = (
+            'DB를 전달받지 못하는 광고주라 <b>예상 CTR</b>로 선별합니다. '
+            '기준: 자사 평균 CTR 이상(증액) · 동종업계 검증 CTR(신규) · '
+            '과거 자사 실적 CTR(휴면 복귀)'
+        )
     st.markdown(
-        f'<div style="font-size:0.72rem;color:{COLOR_TEXT_TER};margin-bottom:10px;">'
-        f'전환(DB) 추적 매체는 CTR이 아니라 <b>CPA 단가</b>로 판정합니다 — '
-        f'양호 기준 {gcpa:,.0f}원'
-        + (f' ({REF_BUDGET_FOR_CPA:,}원당 DB {REF_DB_FOR_CPA}건)' if meta.get('use_stage') else ' (업종 중앙값)')
-        + '</div>',
+        f'<div style="border:1px solid {COLOR_BORDER_SUBTLE};border-radius:8px;'
+        f'padding:9px 13px;background:{COLOR_CARD};margin-bottom:12px;'
+        f'font-size:0.73rem;color:{COLOR_TEXT_SEC};line-height:1.55;">'
+        f'📐 <b style="color:{COLOR_TEXT};">선별 기준</b> — {criteria}</div>',
         unsafe_allow_html=True,
     )
 
@@ -652,7 +775,10 @@ def render(df: pd.DataFrame):
         [
             ('제안 매체', f'{len(view)}개', f'전체 {len(recs)}개 중'),
             ('총 추천 예산', compact_num(total_budget, '원'), '전체 제안 합계'),
-            ('예상 총 클릭', f'{total_clicks:,}회', f'가중 CTR {avg_ctr:.2f}%'),
+            (('예상 총 DB', f'{sum(float(r.get("exp_db") or 0) for r in view):,.0f}건',
+              f'평균 CPA {total_budget / max(sum(float(r.get("exp_db") or 0) for r in view), 1):,.0f}원')
+             if any(r.get('exp_db') for r in view) else
+             ('예상 총 클릭', f'{total_clicks:,}회', f'가중 CTR {avg_ctr:.2f}%')),
             ('최고 기대 매체', view[0]['media'] if view else '—',
              f'CTR {view[0]["ctr"]:.2f}%' if view else ''),
         ],
@@ -681,7 +807,14 @@ def render(df: pd.DataFrame):
     lines = [f'# {brand} 미디어 믹스 제안 ({industry} 업종)', '']
     for r in view:
         lines.append(f'[{r["type"]}] {r["media"]}')
-        lines.append(f'  - 물량 {r["qty"]:,}건 / 예산 {r["budget"]:,}원 / 예상 CTR {r["ctr"]:.2f}% (예상 클릭 {r["exp_clicks"]:,}회)')
+        if r.get('exp_db'):
+            lines.append(f'  - 물량 {r["qty"]:,}건 / 예산 {r["budget"]:,}원 / '
+                         f'예상 DB {float(r["exp_db"]):.0f}건 / 예상 CPA {float(r["exp_cpa"]):,.0f}원')
+            if r.get('exp_db_src'):
+                lines.append(f'    (전환율 근거: {r["exp_db_src"]})')
+        else:
+            lines.append(f'  - 물량 {r["qty"]:,}건 / 예산 {r["budget"]:,}원 / '
+                         f'예상 CTR {r["ctr"]:.2f}% (예상 클릭 {r["exp_clicks"]:,}회)')
         lines.append(f'  - 근거: {r["why"]} ({r["evidence"]})')
         if r.get('target_raw'):
             tg = re.sub(r'\s*\n\s*', ' / ', str(r['target_raw']).strip())
