@@ -37,6 +37,167 @@ def _hash_pw(password: str) -> str:
 
 
 # ──────────────────────────────────────────────
+# 자동 로그인 (로그인 유지) — HMAC 서명 토큰 + 브라우저 localStorage
+# ──────────────────────────────────────────────
+# 흐름:
+#   1) 로그인 시 "로그인 유지" 체크 → 서명 토큰을 localStorage에 저장
+#   2) 다음 접속 시 JS가 localStorage 토큰을 쿼리 파라미터로 붙여 1회 리로드
+#   3) 서버가 서명·만료를 검증하고 세션 복원 후 쿼리 파라미터 즉시 제거
+#
+# 토큰 = base64url("username|만료epoch|pwtag|서명")
+#   - 서명: HMAC-SHA256(secret, "username|만료|pwtag")
+#   - pwtag: 비밀번호 해시 앞 8자 → 비밀번호 변경 시 기존 토큰 자동 무효화
+#   - secret: st.secrets["auth"]["token_secret"] 우선,
+#             없으면 Firebase 서비스 키에서 파생 (서버만 아는 값)
+_REMEMBER_DAYS = 30
+_TOKEN_PARAM = "bc_t"
+_LS_KEY = "bc_auth_token"
+
+
+def _token_secret() -> str:
+    """토큰 서명 키. 배포/로컬 모두에서 안정적으로 같은 값이 나와야 한다."""
+    try:
+        if hasattr(st, "secrets") and "auth" in st.secrets:
+            s = st.secrets["auth"].get("token_secret")
+            if s:
+                return str(s)
+    except Exception:
+        pass
+    # 폴백: Firebase 서비스 키의 고유 값에서 파생 (외부에 노출되지 않는 값)
+    try:
+        from modules.firebase_connector import _load_credentials_dict, _KEY_PATH
+        cred = _load_credentials_dict()
+        if not cred and _KEY_PATH and os.path.exists(_KEY_PATH):
+            with open(_KEY_PATH, encoding="utf-8") as f:
+                cred = json.load(f)
+        if cred:
+            seed = f"{cred.get('project_id','')}|{cred.get('private_key_id','')}"
+            if seed.strip("|"):
+                return hashlib.sha256(("bc-auth-" + seed).encode()).hexdigest()
+    except Exception:
+        pass
+    # 최종 폴백 — 자동 로그인만 비활성화되는 수준 (로그인 자체는 정상 동작)
+    return ""
+
+
+def _make_remember_token(username: str, pw_hash: str) -> str:
+    import base64, hmac, time
+    secret = _token_secret()
+    if not secret:
+        return ""
+    exp = int(time.time()) + _REMEMBER_DAYS * 86400
+    pwtag = (pw_hash or "")[:8]
+    payload = f"{username}|{exp}|{pwtag}"
+    sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+    return base64.urlsafe_b64encode(f"{payload}|{sig}".encode()).decode().rstrip("=")
+
+
+def _verify_remember_token(token: str) -> str | None:
+    """유효하면 username 반환, 아니면 None."""
+    import base64, hmac, time
+    secret = _token_secret()
+    if not secret or not token:
+        return None
+    try:
+        pad = "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(token + pad).decode()
+        username, exp_s, pwtag, sig = raw.split("|")
+        payload = f"{username}|{exp_s}|{pwtag}"
+        expected = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
+        if not hmac.compare_digest(sig, expected):
+            return None
+        if int(exp_s) < int(time.time()):
+            return None
+        # 비밀번호가 바뀌었으면 토큰 무효 (계정 탈취 시 비번 변경으로 차단 가능)
+        users = _load_users()
+        user = users.get(username)
+        if not user:
+            return None
+        if (user.get("password") or "")[:8] != pwtag:
+            return None
+        return username
+    except Exception:
+        return None
+
+
+def _remember_js(action: str, token: str = "") -> None:
+    """브라우저 localStorage 제어 (저장/삭제/자동복원). 높이 0 컴포넌트."""
+    try:
+        import streamlit.components.v1 as components
+    except Exception:
+        return
+
+    if action == "save":
+        script = f"""
+        try {{ window.localStorage.setItem('{_LS_KEY}', '{token}'); }} catch(e) {{}}
+        try {{ window.parent.localStorage.setItem('{_LS_KEY}', '{token}'); }} catch(e) {{}}
+        """
+    elif action == "clear":
+        script = f"""
+        try {{ window.localStorage.removeItem('{_LS_KEY}'); }} catch(e) {{}}
+        try {{ window.parent.localStorage.removeItem('{_LS_KEY}'); }} catch(e) {{}}
+        try {{ window.parent.sessionStorage.removeItem('{_LS_KEY}_tried'); }} catch(e) {{}}
+        """
+    else:  # restore — 토큰이 있으면 쿼리 파라미터로 1회 리로드
+        script = f"""
+        try {{
+          var W = window.parent || window;
+          var ls = W.localStorage, ss = W.sessionStorage;
+          var t = ls.getItem('{_LS_KEY}');
+          var url = new URL(W.location.href);
+          if (t && !url.searchParams.has('{_TOKEN_PARAM}')
+                && !ss.getItem('{_LS_KEY}_tried')) {{
+            ss.setItem('{_LS_KEY}_tried', '1');
+            url.searchParams.set('{_TOKEN_PARAM}', t);
+            W.location.replace(url.toString());
+          }}
+        }} catch(e) {{}}
+        """
+    components.html(f"<script>{script}</script>", height=0)
+
+
+def try_auto_login() -> bool:
+    """앱 시작 시 호출. 저장된 토큰으로 세션 복원 시도.
+
+    Returns: 자동 로그인 성공 여부
+    """
+    if is_logged_in():
+        return True
+    # 1) 쿼리 파라미터에 토큰이 실려 왔으면 검증
+    try:
+        token = st.query_params.get(_TOKEN_PARAM)
+    except Exception:
+        token = None
+    if token:
+        username = _verify_remember_token(token)
+        # 토큰은 주소창에 남기지 않는다 (공유·캡처로 유출 방지)
+        try:
+            del st.query_params[_TOKEN_PARAM]
+        except Exception:
+            pass
+        if username:
+            users = _load_users()
+            user = users.get(username)
+            if user:
+                st.session_state["_auth_user"] = {
+                    "username": username,
+                    "role": user["role"],
+                    "name": user["name"],
+                    "allowed_clients": user.get("allowed_clients", []),
+                }
+                st.session_state["_auto_logged_in"] = True
+                return True
+        # 검증 실패(만료·비번변경 등) → 저장된 토큰 폐기
+        _remember_js("clear")
+        return False
+
+    # 2) 아직 시도 안 했으면 localStorage 확인 요청 (JS가 리로드)
+    if _token_secret():
+        _remember_js("restore")
+    return False
+
+
+# ──────────────────────────────────────────────
 # Firestore 헬퍼 (try/except로 연결 실패 보호)
 # ──────────────────────────────────────────────
 
@@ -336,6 +497,13 @@ def get_role() -> str:
 
 
 def logout():
+    # 저장된 자동 로그인 토큰부터 폐기 (세션 비우기 전에 실행해야 JS가 주입됨)
+    try:
+        _remember_js("clear")
+        import time as _t
+        _t.sleep(0.25)
+    except Exception:
+        pass
     for key in list(st.session_state.keys()):
         del st.session_state[key]
 
@@ -769,6 +937,10 @@ def render_login_page():
     with st.form("login_form"):
         username = st.text_input("아이디", placeholder="아이디를 입력하세요")
         password = st.text_input("비밀번호", type="password", placeholder="비밀번호를 입력하세요")
+        remember = st.checkbox(
+            f"로그인 유지 ({_REMEMBER_DAYS}일)", value=True,
+            help="이 브라우저에 로그인 상태를 저장합니다. 공용 PC에서는 꺼 주세요.",
+        )
         submitted = st.form_submit_button("로그인", use_container_width=True, type="primary")
 
     if submitted:
@@ -791,6 +963,21 @@ def render_login_page():
         if user:
             _clear_failed_logins()
             st.session_state["_auth_user"] = user
+            if remember:
+                # 비밀번호 해시 앞 8자를 토큰에 묶어, 비번 변경 시 자동 만료되게 한다
+                _users = _load_users()
+                _pw_hash = (_users.get(username.strip(), {}) or {}).get("password", "")
+                _tok = _make_remember_token(username.strip(), _pw_hash)
+                if _tok:
+                    _remember_js("save", _tok)
+                    st.session_state["_remember_pending"] = True
+                    # JS가 localStorage에 쓸 시간을 확보한 뒤 진입
+                    import time as _t
+                    _t.sleep(0.35)
+            else:
+                _remember_js("clear")
+                import time as _t
+                _t.sleep(0.2)
             st.rerun()
         else:
             _record_failed_login()

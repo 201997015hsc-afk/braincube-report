@@ -888,7 +888,7 @@ def main():
         except Exception:
             pass
 
-    # ── 로그인 게이트 ──
+    # ── 로그인 게이트 (자동 로그인 우선 시도) ──
     if not is_logged_in():
         st.set_page_config(
             page_title="Braincube AI Report · 로그인",
@@ -896,6 +896,10 @@ def main():
             layout="centered",
             initial_sidebar_state="collapsed",
         )
+        # 저장된 '로그인 유지' 토큰이 있으면 세션 복원 후 바로 진입
+        from modules.auth import try_auto_login
+        if try_auto_login():
+            st.rerun()
         render_login_page()
         return
 
