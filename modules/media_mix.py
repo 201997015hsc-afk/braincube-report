@@ -24,7 +24,7 @@ from modules.config import (
     COLOR_TEXT, COLOR_TEXT_SEC, COLOR_TEXT_TER, COLOR_BORDER, COLOR_BORDER_SUBTLE,
     COLOR_CARD, COLOR_BG, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING, COLOR_BLUE,
     BRAND_PRIMARY, compact_num, MIN_SENDS_FOR_CTR_CLAIM,
-    GOOD_CPA, PROMO_ONLY_REFERENCES, INCLUDE_PERF_PRODUCTS,
+    GOOD_CPA, PROMO_ONLY_REFERENCES, INCLUDE_PERF_PRODUCTS, INCLUDE_DA_MEDIA,
     CPA_PROPOSE_MULT, PRODUCT_DEFAULT_QTY, MEDIA_VARIANT_SUFFIXES,
 )
 from modules.ui_helpers import render_page_header, render_empty_state, esc_html_safe
@@ -386,7 +386,8 @@ def _is_db_driven(me: pd.DataFrame) -> bool:
     return pos >= _DB_DRIVEN_MIN_CAMPAIGNS and pos / max(len(me), 1) >= _DB_DRIVEN_MIN_RATIO
 
 
-def _db_perf(rows: pd.DataFrame, *, good_cpa: float = GOOD_CPA) -> dict | None:
+def _db_perf(rows: pd.DataFrame, *, good_cpa: float = GOOD_CPA,
+             da_as_product: bool = False) -> dict | None:
     """DB(전환) 기준 성과. DB가 충분히 쌓인 경우에만 반환.
 
     good_cpa: 업종별 양호 기준. 교육은 고정값(500만원/30건),
@@ -405,7 +406,10 @@ def _db_perf(rows: pd.DataFrame, *, good_cpa: float = GOOD_CPA) -> dict | None:
     #   (실사례: 키즈노트 — DB 23건/광고비 0원 행을 포함하면 194,805원,
     #            제외하면 277,778원. 제안 통과 여부가 뒤집힌다)
     _prod = rows['광고상품'].apply(_product_label)
-    rep = rows[(_prod != 'DA')
+    # DA를 '함께 낸 패키지 비용'이 아니라 그 자체로 평가할 때도 있다
+    # (배달의민족처럼 DA로만 파는 매체를 제안할 때).
+    _sel = (_prod == 'DA') if da_as_product else (_prod != 'DA')
+    rep = rows[_sel
                & pd.to_numeric(rows['DB'], errors='coerce').notna()
                & (pd.to_numeric(rows['광고비'], errors='coerce').fillna(0) > 0)]
     if rep.empty:
@@ -420,7 +424,8 @@ def _db_perf(rows: pd.DataFrame, *, good_cpa: float = GOOD_CPA) -> dict | None:
     #            LMS만 세면 294,118원이지만 실제로는 411,765원 — 광고주는
     #            "매우 안 좋았다"고 평가했다. 타겟 원문에도 "KB Pay + LMS
     #            배너 패키지"로 적혀 있다)
-    pkg = pd.to_numeric(rows[_prod == 'DA']['광고비'], errors='coerce').fillna(0).sum()
+    pkg = 0.0 if da_as_product else pd.to_numeric(
+        rows[_prod == 'DA']['광고비'], errors='coerce').fillna(0).sum()
     cost = pd.to_numeric(rep['광고비'], errors='coerce').fillna(0).sum() + float(pkg)
     if cost <= 0:
         return None
@@ -642,7 +647,7 @@ def build_recommendations(
             # 성과형 CPA 행과 메시징 행이 섞이면 전혀 다른 단가가 합쳐진다.
             _pl = rows['광고상품'].apply(_product_label)
             rows = rows[_pl.isin([product, 'DA'])]
-            p = _db_perf(rows, good_cpa=good_cpa)
+            p = _db_perf(rows, good_cpa=good_cpa, da_as_product=(product == 'DA'))
             # 단가 미입력·패키지 정산으로 광고비가 비어 있으면 CPA가
             # 비현실적으로 낮게 찍힌다. 실측으로 믿지 않는다.
             #   (온리원 ASUM 패키지: 단가 1원으로 기록돼 실측 CPA 2,667원)
@@ -768,6 +773,37 @@ def build_recommendations(
         tgt_s, tgt_raw = _best_target_for(me, media)
         hist = me_q[me_q['_mk'].astype(str) == media]
         if hist.empty:
+            _pl_all = rows_all['광고상품'].apply(_product_label)
+            da_rows = rows_all[_pl_all == 'DA']
+            _dc = pd.to_numeric(da_rows['광고비'], errors='coerce').fillna(0)
+            if INCLUDE_DA_MEDIA and len(da_rows) and (_dc > 0).any():
+                # DA 전용 매체 (배달의민족·토스·카카오뱅크 등).
+                # 이 시스템에는 DA의 노출·클릭이 기록되지 않아 CTR을 만들 수 없다.
+                # 전환(DB)이 찍힌 건이 있으면 CPA로, 없으면 집행 이력으로 제안한다.
+                dperf = (_db_perf(da_rows, good_cpa=good_cpa, da_as_product=True)
+                         if db_driven else None)
+                if dperf is not None and dperf['grade'] == '부진':
+                    continue
+                _why = (f'{days}일간 미집행. 실측 CPA {dperf["cpa"]:,.0f}원 '
+                        f'({dperf["grade"]})' if dperf else
+                        f'{days}일간 미집행. 과거 {len(da_rows)}회 집행 '
+                        f'(총 {compact_num(float(_dc.sum()), "원")})')
+                recs.append({
+                    'type': '🔁 휴면 복귀', 'tone': COLOR_WARNING, 'media': media,
+                    'ctr': 0.0, 'ctr_src': f'자사 DA {len(da_rows)}건',
+                    'qty': 0, 'unit': 0.0,
+                    'target': tgt_s, 'target_raw': tgt_raw,
+                    'why': _why,
+                    'score': ((good_cpa / dperf['cpa']) * 4.0 * _volume_weight(dperf)
+                              if dperf else 0.8),
+                    'evidence': (f'자사 DA {len(da_rows)}건 · 집행액 '
+                                 f'{compact_num(float(_dc.sum()), "원")} · '
+                                 f'최종 집행 {last_d:%Y-%m-%d}'),
+                    'cpa': dperf['cpa'] if dperf else None,
+                    'db': dperf['db'] if dperf else None,
+                    'da_only': True, 'dormant_days': days,
+                })
+                continue
             # 성과형(CPA) 전용 매체 — 발송·CTR 개념이 없어 메시징 기준으로는
             # 걸리지 않는다. DB 건당 과금이라 실측 CPA가 곧 성과다.
             #   (온리원 텐핑 DB 1,062건 CPA 55,000원 / 디비디비딥 583건
@@ -787,7 +823,7 @@ def build_recommendations(
                 'score': (good_cpa / perf['cpa']) * 4.0 * _volume_weight(perf),
                 'evidence': (f'자사 {perf["n"]}건 · DB {perf["db"]:.0f}건 · '
                              f'최종 집행 {last_d:%Y-%m-%d}'),
-                'cpa': perf['cpa'], 'db': perf['db'],
+                'cpa': perf['cpa'], 'db': perf['db'], 'dormant_days': days,
             })
             continue
         my_ctr = _ctr(hist['클릭수'].fillna(0).sum(), hist['발송건'].sum())
@@ -799,6 +835,7 @@ def build_recommendations(
             'why': f'{days}일간 미집행. 과거 CTR {my_ctr:.2f}% 기록',
             'score': my_ctr * 1.0,
             'evidence': f'자사 {len(hist)}건 · 최종 집행 {last_d:%Y-%m-%d}',
+            'dormant_days': days,
         })
 
     # ── 🆕 신규 진입 (동종업계 검증, 자사 미집행) ──
@@ -819,6 +856,7 @@ def build_recommendations(
             'why': f'{industry} 업종 {int(r["브랜드수"])}개사 검증 · 자사 미집행',
             'score': float(r['CTR']) * (1.0 + 0.1 * int(r['브랜드수'])),
             'evidence': f'활용: {", ".join(brands)}' + (' 외' if int(r['브랜드수']) > 3 else ''),
+            'ref_n': int(r['브랜드수']),
         })
 
     # ── 🆕 신규 진입 (타사 CPA 검증, 자사 미집행) ──
@@ -833,6 +871,9 @@ def build_recommendations(
     for media in sorted(set(_peer_cpa_src['_mk'].dropna().astype(str)) - my_media_all):
         rows = _peer_cpa_src[_peer_cpa_src['_mk'].astype(str) == media]
         perf = _db_perf(rows, good_cpa=good_cpa)
+        if perf is None and INCLUDE_DA_MEDIA:
+            # DA로만 파는 매체는 DA 실적으로 평가한다
+            perf = _db_perf(rows, good_cpa=good_cpa, da_as_product=True)
         if perf is None or perf['grade'] == '부진':
             continue
         tgt_s, tgt_raw = _best_target_for(others_db, media)
@@ -852,6 +893,7 @@ def build_recommendations(
             'evidence': (f'타사 DB {perf["db"]:.0f}건 / 광고비 '
                          f'{compact_num(perf["cost"], "원")} · {perf["n"]}회 — '
                          f'{", ".join(pb)}'),
+            'ref_n': int(rows['_브랜드'].nunique()),
         })
 
     # ── 📈 증액 (최근 2개월 자사 성과 우수) ──
@@ -999,8 +1041,9 @@ def build_recommendations(
         # 유형별 상한 (믹스 균형)
         if type_n.get(r['type'], 0) >= _TYPE_CAP.get(r['type'], 4):
             continue
-        # CTR·CPA 어느 쪽으로도 근거가 없으면 제안하지 않는다
-        if float(r.get('ctr') or 0) <= 0 and not r.get('cpa'):
+        # CTR·CPA 어느 쪽으로도 근거가 없으면 제안하지 않는다.
+        # DA는 이 시스템에 노출·클릭이 기록되지 않아 집행 이력으로 제안한다.
+        if float(r.get('ctr') or 0) <= 0 and not r.get('cpa') and not r.get('da_only'):
             continue
         _prod, _ = _media_plan(r['media'])
         r['product'] = _prod
@@ -1012,6 +1055,10 @@ def build_recommendations(
         # 성과형(CPA) 상품은 단가 자체가 DB 단가다. 발송 전환율을 적용하면
         # '물량 1만건 × 6만원 = 6억원' 같은 허수가 만들어진다.
         # 물량은 발송이 아니라 DB 건수로 제안한다. (기준과 같은 30건)
+        if _prod == 'DA' and not INCLUDE_DA_MEDIA:
+            seen.add(r['media'])
+            _drop(r, 'DA 매체 — 노출·클릭이 기록되지 않아 제안 대상에서 제외')
+            continue
         r['cpa_product'] = _prod == _PRODUCT_PERF
         if r['cpa_product'] and not INCLUDE_PERF_PRODUCTS:
             seen.add(r['media'])
@@ -1170,6 +1217,78 @@ def _history_html(r: dict) -> str:
     )
 
 
+def _client_note(r: dict) -> str:
+    """광고주에게 그대로 보낼 수 있는 한 줄 코멘트.
+
+    타사 브랜드명은 쓰지 않는다 — 레퍼런스는 '교육 업종 N개사'로만 적는다.
+    (경쟁사 집행 내역은 내부 검토용이고, 광고주 전달본에서는 익명 처리한다)
+    근거와 예측의 단위를 맞춘다 — 전환으로 보는 매체는 CPA로, CTR로 보는
+    매체는 CTR로. 섞으면 "CTR이 좋아서 DB가 나온다"는 말이 돼 버린다.
+    """
+    gcpa = float(r.get('_meta', {}).get('good_cpa') or GOOD_CPA)
+    qty = int(r.get('qty') or 0)
+    cpa = float(r.get('exp_cpa') or 0)
+    edb = float(r.get('exp_db') or 0)
+    ctr = float(r.get('ctr') or 0)
+    clicks = int(r.get('exp_clicks') or 0)
+    days = int(r.get('dormant_days') or 0)
+    refn = int(r.get('ref_n') or 0)
+    typ = r.get('type', '')
+    # 실측 근거 — 증액은 판정에 쓴 '최근 2개월' 값을, 휴면은 전체 이력 값을
+    # 먼저 본다. 문구의 '최근/과거'와 숫자의 출처를 맞추기 위해서다.
+    recent_cpa = float(r.get('cpa') or 0)
+    all_cpa = float(r.get('hist_cpa') or 0)
+    hist_cpa = (recent_cpa or all_cpa) if typ.endswith('증액') else (all_cpa or recent_cpa)
+    db_basis = edb > 0 and cpa > 0
+
+    # '집행 시'를 유형 문구와 중복해서 쓰지 않도록 '기준'으로 연다
+    if db_basis:
+        base = f'{qty:,}건 기준 DB {edb:.0f}건·CPA {cpa:,.0f}원'
+        outlook = base + ('으로 목표 효율을 충족합니다' if cpa <= gcpa else '이 예상됩니다')
+    elif ctr > 0:
+        outlook = f'{qty:,}건 기준 클릭 {clicks:,}회(CTR {ctr:.2f}%)가 예상됩니다'
+    else:
+        outlook = f'{qty:,}건 규모로 테스트해볼 수 있습니다'
+
+    if typ.endswith('증액'):
+        if recent_cpa <= 0 and all_cpa > 0:
+            # 최근 2개월엔 전환 집계가 없고 누적 실측만 있는 경우
+            head = f'누적 집행 기준 CPA {all_cpa:,.0f}원을 기록 중인 매체입니다'
+            return f'{head}. 물량을 늘리면 {outlook}.'
+        if hist_cpa > 0:
+            if abs(hist_cpa - gcpa) < 1:
+                head = f'최근 2개월 CPA {hist_cpa:,.0f}원으로 목표 수준을 유지하고 있습니다'
+            elif hist_cpa < gcpa:
+                head = (f'최근 2개월 CPA {hist_cpa:,.0f}원으로 목표 '
+                        f'{gcpa:,.0f}원을 밑돌고 있습니다')
+            else:
+                head = (f'최근 2개월 CPA {hist_cpa:,.0f}원으로 목표 '
+                        f'{gcpa:,.0f}원을 소폭 웃도는 수준입니다')
+        else:
+            head = f'최근 2개월 CTR {ctr:.2f}%로 자사 평균을 웃돌고 있습니다'
+        return f'{head}. 물량을 늘리면 {outlook}.'
+
+    if typ.endswith('휴면 복귀'):
+        gap = f'{days}일간 미집행 매체입니다. ' if days else ''
+        if hist_cpa > 0:
+            head = f'{gap}과거 집행 시 CPA {hist_cpa:,.0f}원을 기록했습니다'
+        elif ctr > 0 and not db_basis:
+            head = f'{gap}과거 집행 시 CTR {ctr:.2f}%를 기록했습니다'
+        else:
+            head = f'{gap}소재 노출 피로도가 낮은 시점입니다'
+        return f'{head}. 재집행 시 {outlook}.'
+
+    if typ.endswith('신규 진입'):
+        ref = (f'교육 업종 {refn}개사가 집행 중인 매체로'
+               if refn else '동종업계에서 검증된 매체로')
+        return f'{ref}, 아직 접점이 없던 신규 모수입니다. {outlook}.'
+
+    if typ.endswith('신규 매체'):
+        return f'최근 업종에 새로 편입된 매체로 경쟁 노출이 적습니다. {outlook}.'
+
+    return f'{outlook}.'
+
+
 _PROD_COLOR = {
     'LMS': COLOR_BLUE, '카플친': COLOR_WARNING,
     '앱푸시': COLOR_SUCCESS, 'DA': BRAND_PRIMARY, '성과형': COLOR_DANGER,
@@ -1279,6 +1398,12 @@ def _rec_card(r: dict, rank: int) -> str:
         +
         f'  </div>'
         f'  {_history_html(r)}'
+        f'  <div style="margin-top:8px;padding:8px 12px;background:{COLOR_BG};'
+        f'border-radius:6px;border-left:2px solid {tone};">'
+        f'<div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};font-weight:600;'
+        f'margin-bottom:3px;">💬 광고주 전달용 코멘트</div>'
+        f'<div style="font-size:0.76rem;color:{COLOR_TEXT};line-height:1.5;">'
+        f'{esc_html_safe(_client_note(r))}</div></div>'
         f'  {target_html}'
         f'</div>'
     )
@@ -1513,8 +1638,11 @@ def render(df: pd.DataFrame):
                f'— {", ".join(sorted(k.split("|")[-1] for k in PROMO_ONLY_REFERENCES))}'
                if PROMO_ONLY_REFERENCES else '')
             + ('<br>성과형(CPA·CPS·퍼미션콜) 매체는 현재 제안에서 제외합니다 '
-               '— 메시징(LMS·카플친·앱푸시·DA) 기준으로만 믹스를 짭니다.'
+               '— DB 건당 과금이라 구매·정산 방식이 다릅니다.'
                if not INCLUDE_PERF_PRODUCTS else '')
+            + ('<br>DA(배너) 매체도 제외합니다 — 이 시스템에 노출·클릭이 '
+               '기록되지 않아 성과를 숫자로 검증할 수 없습니다.'
+               if not INCLUDE_DA_MEDIA else '')
         )
     else:
         criteria = (
@@ -1699,6 +1827,7 @@ def render(df: pd.DataFrame):
             lines.append(f'  - 물량 {r["qty"]:,}건 / 예산 {r["budget"]:,}원 / '
                          f'예상 CTR {r["ctr"]:.2f}% (예상 클릭 {r["exp_clicks"]:,}회)')
         lines.append(f'  - 근거: {r["why"]} ({r["evidence"]})')
+        lines.append(f'  - 광고주 코멘트: {_client_note(r)}')
         for h in (r.get('history') or []):
             _b = f'{h["brand"]} ' if r.get('history_src') == '타사' else ''
             _s = f'{h["send"]:,.0f}건' if h['send'] else (
