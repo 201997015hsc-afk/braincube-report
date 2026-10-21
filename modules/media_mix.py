@@ -24,6 +24,8 @@ from modules.config import (
     COLOR_TEXT, COLOR_TEXT_SEC, COLOR_TEXT_TER, COLOR_BORDER, COLOR_BORDER_SUBTLE,
     COLOR_CARD, COLOR_BG, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING, COLOR_BLUE,
     BRAND_PRIMARY, compact_num, MIN_SENDS_FOR_CTR_CLAIM,
+    TARGET_CPA, GOOD_CPA, POOR_CPA, REF_BUDGET_FOR_CPA, REF_DB_FOR_CPA,
+    CHILD_STAGE_KEYWORDS,
 )
 from modules.ui_helpers import render_page_header, render_empty_state, esc_html_safe
 
@@ -31,6 +33,11 @@ _DORMANT_DAYS = 90      # 휴면 판정 기준
 _NEW_MEDIA_DAYS = 60    # 업종 내 신규 매체 판정 기준
 _REF_WINDOW_DAYS = 180  # 동종업계 레퍼런스 조회 기간
 _DEFAULT_QTY = 50_000   # 기본 권장 발송량
+_MIN_DB_FOR_JUDGE = 3   # 이 이상 DB가 쌓여야 CPA로 성과를 판정
+
+# 자녀 연령 스테이지 매칭과 고정 CPA 기준(500만원/30건)은 **교육 업종 전용**이다.
+# 보험·수송 등은 KPI 정의와 전환 단가 수준이 완전히 달라 같은 기준을 쓰면 안 된다.
+_STAGE_INDUSTRIES = {'교육'}
 
 
 # ──────────────────────────────────────────────
@@ -38,6 +45,128 @@ _DEFAULT_QTY = 50_000   # 기본 권장 발송량
 # ──────────────────────────────────────────────
 def _ctr(clicks, sends) -> float:
     return float(clicks) / float(sends) * 100 if sends else 0.0
+
+
+# 학령 명시 키워드 — 연도 추론보다 우선한다
+_RE_STAGE_ELEM = re.compile(r'초등|스쿨뱅킹\s*\(?\s*초|초등학교|초등지수|실내화|골드키즈')
+_RE_STAGE_MID = re.compile(r'중학|스쿨뱅킹\s*\(?\s*중|교복|중등')
+_RE_STAGE_HIGH = re.compile(r'고등|수능|모의고사|입시')
+# "20-23년 유치원/어린이집 결제자" → 끝 연도로 자녀 현재 나이를 역산
+_RE_KINDER_YEAR = re.compile(r'(\d{2})\s*[-~]\s*(\d{2})\s*년?\s*도?\s*[^\n]{0,8}?(유치원|어린이집)')
+_RE_KINDER_PLAIN = re.compile(r'유치원|어린이집|키즈카페')
+_RE_INFANT = re.compile(r'이유식|기저귀|분유|산후조리원|태교|임신|출산|신생아|국민행복카드')
+_RE_BIRTH_YEAR = re.compile(r'(20\d{2})\s*년\s*생')
+
+_CUR_YEAR = 2026  # 데이터 기준 연도 (연도 역산용)
+
+
+def _stage_of_text(text) -> str:
+    """타겟 원문 → 자녀 연령 스테이지. 매칭 없으면 '미상'.
+
+    ⚠ 단순 키워드 매칭은 틀린다.
+      "20-23년 유치원 결제자"는 **과거 이력**이라 자녀가 지금은 초등이다.
+      실제로 아이스크림홈런·밀크T(초등 학습지)가 '영유아'로 잘못 분류됐다.
+    판정 순서:
+      1) 학령 명시(초등/중학/고등) — 연도와 무관하게 확정
+      2) 자녀 출생연도 명시 → 나이 계산
+      3) 유치원·어린이집 결제 '종료 연도'로 현재 나이 역산
+         (유치원 재원 ≈ 5세 기준 + 경과 연수)
+      4) 영유아 전용 시그널(이유식·기저귀·산후조리원 등)
+    """
+    if text is None or (isinstance(text, float) and pd.isna(text)):
+        return '미상'
+    s = str(text)
+    if not s.strip():
+        return '미상'
+
+    # 1) 학령 명시가 가장 강한 신호
+    if _RE_STAGE_HIGH.search(s):
+        return '고등'
+    if _RE_STAGE_MID.search(s):
+        return '중등'
+    if _RE_STAGE_ELEM.search(s):
+        return '초등'
+
+    def _age_to_stage(age: float) -> str:
+        if age < 7:
+            return '영유아'
+        if age < 13:
+            return '초등'
+        if age < 16:
+            return '중등'
+        return '고등'
+
+    # 2) 자녀 출생연도 명시 (예: "2022년생")
+    m = _RE_BIRTH_YEAR.search(s)
+    if m:
+        return _age_to_stage(_CUR_YEAR - int(m.group(1)))
+
+    # 3) 유치원·어린이집 결제 연도로 역산
+    yrs = [int(mm.group(2)) for mm in _RE_KINDER_YEAR.finditer(s)]
+    if yrs:
+        end_yy = max(yrs)                      # 가장 최근 재원 연도
+        end_year = 2000 + end_yy if end_yy < 100 else end_yy
+        # 유치원 재원 시점 약 5세 → 현재 나이 = 5 + 경과 연수
+        return _age_to_stage(5 + (_CUR_YEAR - end_year))
+
+    # 4) 영유아 전용 시그널 (연도 없음)
+    if _RE_INFANT.search(s) or _RE_KINDER_PLAIN.search(s):
+        return '영유아'
+    return '미상'
+
+
+def _add_stage(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out['_stage'] = out['타겟'].apply(_stage_of_text) if '타겟' in out.columns else '미상'
+    return out
+
+
+def _main_stage(df_brand: pd.DataFrame) -> tuple[str, dict]:
+    """브랜드의 주력 자녀 연령 스테이지와 분포(%)."""
+    if df_brand.empty or '_stage' not in df_brand.columns:
+        return '미상', {}
+    vc = df_brand[df_brand['_stage'] != '미상']['_stage'].value_counts()
+    if vc.empty:
+        return '미상', {}
+    total = int(vc.sum())
+    dist = {k: round(v / total * 100) for k, v in vc.items()}
+    return str(vc.index[0]), dist
+
+
+def _cpa_grade(cpa: float) -> tuple[str, str]:
+    """CPA → (등급 문구, 색상). 기준: 500만원/30건 = 166,667원"""
+    if cpa <= 0:
+        return '—', COLOR_TEXT_SEC
+    if cpa <= GOOD_CPA:
+        return '양호', COLOR_SUCCESS
+    if cpa <= POOR_CPA:
+        return '보통', COLOR_WARNING
+    return '부진', COLOR_DANGER
+
+
+def _db_perf(rows: pd.DataFrame, *, good_cpa: float = GOOD_CPA) -> dict | None:
+    """DB(전환) 기준 성과. DB가 충분히 쌓인 경우에만 반환.
+
+    good_cpa: 업종별 양호 기준. 교육은 고정값(500만원/30건),
+              그 외 업종은 호출부에서 업종 중앙 CPA를 넘겨준다.
+    """
+    if rows.empty or 'DB' not in rows.columns:
+        return None
+    db = pd.to_numeric(rows['DB'], errors='coerce').fillna(0).sum()
+    if db < _MIN_DB_FOR_JUDGE:
+        return None
+    cost = pd.to_numeric(rows['광고비'], errors='coerce').fillna(0).sum()
+    if cost <= 0:
+        return None
+    cpa = float(cost) / float(db)
+    if cpa <= good_cpa:
+        grade, color = '양호', COLOR_SUCCESS
+    elif cpa <= good_cpa * 2:
+        grade, color = '보통', COLOR_WARNING
+    else:
+        grade, color = '부진', COLOR_DANGER
+    return {'db': float(db), 'cost': float(cost), 'cpa': cpa,
+            'grade': grade, 'color': color, 'n': len(rows), 'good_cpa': good_cpa}
 
 
 def _summarize_target(raw) -> str:
@@ -81,9 +210,28 @@ def build_recommendations(
         return []
     latest = full['_d'].max()
 
+    # 자녀 연령 스테이지는 교육 업종에서만 의미가 있다
+    use_stage = industry in _STAGE_INDUSTRIES
+    if use_stage:
+        full = _add_stage(full)
     me = full[full['_브랜드'] == brand].copy()
     if me.empty:
         return []
+
+    # 자사 주력 자녀 연령 스테이지 — 레퍼런스를 고를 때의 기준
+    my_stage, my_dist = _main_stage(me) if use_stage else ('미상', {})
+
+    # 업종별 양호 CPA 기준: 교육은 고정(500만원/30건), 그 외는 업종 중앙값
+    good_cpa = GOOD_CPA
+    if not use_stage:
+        ind_rows = full[(full['분야'] == industry)
+                        & (pd.to_numeric(full['DB'], errors='coerce').fillna(0) > 0)]
+        if not ind_rows.empty:
+            _db = pd.to_numeric(ind_rows['DB'], errors='coerce')
+            _cp = (pd.to_numeric(ind_rows['광고비'], errors='coerce') / _db).replace(
+                [np.inf, -np.inf], np.nan).dropna()
+            if len(_cp):
+                good_cpa = float(_cp.median())
 
     # 메시징 qualified (CTR 신뢰 가능)
     def _qual(d):
@@ -106,6 +254,17 @@ def build_recommendations(
         & (full['_브랜드'] != brand)
         & (full['_d'] >= latest - pd.Timedelta(days=_REF_WINDOW_DAYS))
     ].copy()
+
+    # ⚠ 같은 업종이라도 자녀 연령대가 다르면 모수가 전혀 다르다.
+    #   자사 주력 스테이지와 같은 타겟의 캠페인만 레퍼런스로 삼는다.
+    #   (예: 윙크=영유아 / 온리원=초등 → 서로 레퍼런스가 될 수 없음)
+    stage_filtered = False
+    if use_stage and my_stage != '미상':
+        same_stage = others[others['_stage'] == my_stage]
+        if len(same_stage) >= 5:
+            others = same_stage
+            stage_filtered = True
+
     others_q = _qual(others)
     ref = others_q.groupby('매체').agg(
         브랜드수=('_브랜드', 'nunique'), 캠페인수=('매체', 'size'),
@@ -169,30 +328,65 @@ def build_recommendations(
             'evidence': f'활용: {", ".join(brands)}' + (' 외' if int(r['브랜드수']) > 3 else ''),
         })
 
-    # ── 📈 증액 (전월·전전월 자사 성과 우수) ──
+    # ── 📈 증액 (최근 2개월 자사 성과 우수) ──
+    # ⚠ DB(전환) 추적 매체는 CTR이 아니라 **CPA 단가**로 판정한다.
+    #   CTR이 높아도 전환이 안 되면 광고주 입장에선 실패한 캠페인이다.
+    recent_all = me[me['_d'] >= latest - pd.Timedelta(days=62)]
     recent_q = me_q[me_q['_d'] >= latest - pd.Timedelta(days=62)]
-    if not recent_q.empty:
-        g = recent_q.groupby('매체').agg(
-            발송=('발송건', 'sum'), 클릭=('클릭수', lambda x: x.fillna(0).sum()),
-            건수=('매체', 'size'),
-        ).reset_index()
-        g['CTR'] = g.apply(lambda r: _ctr(r['클릭'], r['발송']), axis=1)
-        base_ctr = _ctr(recent_q['클릭수'].fillna(0).sum(), recent_q['발송건'].sum())
-        for _, r in g.sort_values('CTR', ascending=False).head(4).iterrows():
-            if r['CTR'] < base_ctr:
+    if not recent_q.empty or not recent_all.empty:
+        base_ctr = _ctr(recent_q['클릭수'].fillna(0).sum(), recent_q['발송건'].sum()) \
+            if not recent_q.empty else 0
+        cands = []
+        for media in sorted(set(recent_all['매체'].dropna().astype(str))):
+            m_all = recent_all[recent_all['매체'].astype(str) == media]
+            m_q = recent_q[recent_q['매체'].astype(str) == media]
+            perf = _db_perf(m_all, good_cpa=good_cpa)   # DB 기준 성과 (있으면 우선)
+
+            if perf is not None:
+                # 전환 기준 평가 — 기준 CPA 초과면 증액 대상에서 제외
+                if perf['cpa'] > good_cpa:
+                    continue
+                qty_base = float(m_all['정산수량'].sum()) if '정산수량' in m_all.columns else 0
+                n = perf['n']
+                ctr_val = _ctr(m_q['클릭수'].fillna(0).sum(), m_q['발송건'].sum()) if not m_q.empty else 0
+                cands.append({
+                    'media': media, 'ctr': ctr_val,
+                    'ctr_src': f'자사 최근 {n}건 · DB {perf["db"]:.0f}건',
+                    'qty': int(min(max(qty_base / max(n, 1) * 1.3 // 1000 * 1000, 10_000), 150_000)),
+                    'why': (f'CPA {perf["cpa"]:,.0f}원 ({perf["grade"]}) — '
+                            f'목표 {good_cpa:,.0f}원 이내'),
+                    'evidence': (f'최근 DB {perf["db"]:.0f}건 / 광고비 '
+                                 f'{compact_num(perf["cost"], "원")} · {n}회 집행'),
+                    'score': (good_cpa / perf['cpa']) * 3.0,   # CPA가 좋을수록 높은 점수
+                    'cpa': perf['cpa'], 'db': perf['db'],
+                })
                 continue
-            media = str(r['매체'])
-            tgt_s, tgt_raw = _best_target_for(me, media)
-            lift = (r['CTR'] / base_ctr - 1) * 100 if base_ctr else 0
+
+            # DB 추적이 없는 매체만 CTR로 판정
+            if m_q.empty:
+                continue
+            c = _ctr(m_q['클릭수'].fillna(0).sum(), m_q['발송건'].sum())
+            if c < base_ctr or base_ctr <= 0:
+                continue
+            n = len(m_q)
+            lift = (c / base_ctr - 1) * 100
+            cands.append({
+                'media': media, 'ctr': c, 'ctr_src': f'자사 최근 {n}건',
+                'qty': int(min(m_q['발송건'].sum() / max(n, 1) * 1.3 // 1000 * 1000, 150_000)),
+                'why': f'최근 2개월 CTR {c:.2f}% — 자사 평균 대비 +{lift:.0f}%',
+                'evidence': f'최근 발송 {compact_num(float(m_q["발송건"].sum()), "건")} · {n}회',
+                'score': c * 1.2, 'cpa': None, 'db': None,
+            })
+
+        for c in sorted(cands, key=lambda x: -x['score'])[:4]:
+            tgt_s, tgt_raw = _best_target_for(me, c['media'])
             recs.append({
-                'type': '📈 증액', 'tone': COLOR_SUCCESS, 'media': media,
-                'ctr': float(r['CTR']), 'ctr_src': f'자사 최근 {int(r["건수"])}건',
-                'qty': int(min(r['발송'] / max(int(r['건수']), 1) * 1.3 // 1000 * 1000, 150_000)),
-                'unit': _unit_price(media),
+                'type': '📈 증액', 'tone': COLOR_SUCCESS, 'media': c['media'],
+                'ctr': c['ctr'], 'ctr_src': c['ctr_src'],
+                'qty': c['qty'], 'unit': _unit_price(c['media']),
                 'target': tgt_s, 'target_raw': tgt_raw,
-                'why': f'최근 2개월 CTR {r["CTR"]:.2f}% — 평균 대비 +{lift:.0f}%',
-                'score': float(r['CTR']) * 1.2,
-                'evidence': f'최근 발송 {compact_num(float(r["발송"]), "건")} · {int(r["건수"])}회',
+                'why': c['why'], 'score': c['score'], 'evidence': c['evidence'],
+                'cpa': c.get('cpa'), 'db': c.get('db'),
             })
 
     # ── ✨ 업종 신규 매체 (최근 등장, 선점 기회) ──
@@ -205,6 +399,8 @@ def build_recommendations(
             continue
         sub = others_q[others_q['매체'].astype(str) == media]
         c = _ctr(sub['클릭수'].fillna(0).sum(), sub['발송건'].sum()) if not sub.empty else 0
+        if c <= 0:
+            continue  # 성과 레퍼런스가 전혀 없으면 추천 근거가 없다
         tgt_s, tgt_raw = _best_target_for(others, media)
         recs.append({
             'type': '✨ 신규 매체', 'tone': COLOR_BLUE, 'media': media,
@@ -223,9 +419,17 @@ def build_recommendations(
     for r in recs:
         if r['media'] in seen:
             continue
+        # CTR·CPA 어느 쪽으로도 근거가 없으면 제안하지 않는다
+        if float(r.get('ctr') or 0) <= 0 and not r.get('cpa'):
+            continue
         seen.add(r['media'])
         r['budget'] = int(r['qty'] * r['unit'])
         r['exp_clicks'] = int(r['qty'] * r['ctr'] / 100)
+        r['_meta'] = {
+            'my_stage': my_stage, 'my_dist': my_dist,
+            'stage_filtered': stage_filtered, 'good_cpa': good_cpa,
+            'use_stage': use_stage,
+        }
         out.append(r)
         if len(out) >= 12:
             break
@@ -237,6 +441,19 @@ def build_recommendations(
 # ──────────────────────────────────────────────
 def _rec_card(r: dict, rank: int) -> str:
     tone = r['tone']
+    cpa_html = ''
+    if r.get('cpa'):
+        _g, _c = _cpa_grade(float(r['cpa']))
+        cpa_html = (
+            f'<div style="margin-top:6px;display:inline-flex;align-items:center;gap:6px;'
+            f'background:{COLOR_BG};border-radius:6px;padding:4px 10px;">'
+            f'<span style="font-size:0.62rem;color:{COLOR_TEXT_SEC};font-weight:600;">CPA</span>'
+            f'<span style="font-size:0.8rem;color:{_c};font-weight:700;">'
+            f'{float(r["cpa"]):,.0f}원</span>'
+            f'<span style="font-size:0.62rem;color:{_c};font-weight:600;">{_g}</span>'
+            f'<span style="font-size:0.62rem;color:{COLOR_TEXT_TER};">· DB {float(r.get("db") or 0):.0f}건</span>'
+            f'</div>'
+        )
     target_html = (
         f'<div style="background:{COLOR_BG};border-radius:6px;padding:8px 12px;'
         f'margin-top:8px;border-left:2px solid {COLOR_BORDER};">'
@@ -271,6 +488,7 @@ def _rec_card(r: dict, rank: int) -> str:
         f'{esc_html_safe(r["why"])}</div>'
         f'  <div style="font-size:0.68rem;color:{COLOR_TEXT_TER};margin-top:2px;">'
         f'{esc_html_safe(r["evidence"])}</div>'
+        f'  {cpa_html}'
         # 제안 수치
         f'  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;'
         f'margin-top:10px;padding-top:10px;border-top:1px dashed {COLOR_BORDER_SUBTLE};">'
@@ -354,6 +572,38 @@ def render(df: pd.DataFrame):
             f'padding-top:8px;">{esc_html_safe(brand)} · {esc_html_safe(industry)} 업종 기준</div>',
             unsafe_allow_html=True,
         )
+
+    # 레퍼런스 범위 안내 — 어떤 기준으로 비교했는지 투명하게
+    meta = recs[0].get('_meta', {}) if recs else {}
+    if meta.get('use_stage'):
+        stg = meta.get('my_stage', '미상')
+        dist = meta.get('my_dist', {})
+        dist_txt = ' · '.join(f'{k} {v}%' for k, v in list(dist.items())[:3])
+        if meta.get('stage_filtered'):
+            note = (f'자녀 <b>{esc_html_safe(stg)}</b> 타겟 캠페인만 레퍼런스로 비교했습니다 '
+                    f'({dist_txt}). 학령이 다른 광고주 성과는 제외됩니다.')
+            tone, icon = COLOR_SUCCESS, '✅'
+        else:
+            note = (f'자사 주력은 <b>{esc_html_safe(stg)}</b>({dist_txt})이지만 같은 학령의 '
+                    f'타사 캠페인이 부족해 업종 전체를 참고했습니다. '
+                    f'학령이 다른 매체가 섞일 수 있으니 타겟을 꼭 확인하세요.')
+            tone, icon = COLOR_WARNING, '⚠'
+        st.markdown(
+            f'<div style="border:1px solid {COLOR_BORDER_SUBTLE};border-left:3px solid {tone};'
+            f'border-radius:8px;padding:10px 14px;background:{COLOR_BG};margin-bottom:12px;'
+            f'font-size:0.76rem;color:{COLOR_TEXT_SEC};line-height:1.5;">'
+            f'{icon} {note}</div>',
+            unsafe_allow_html=True,
+        )
+    gcpa = float(meta.get('good_cpa') or GOOD_CPA)
+    st.markdown(
+        f'<div style="font-size:0.72rem;color:{COLOR_TEXT_TER};margin-bottom:10px;">'
+        f'전환(DB) 추적 매체는 CTR이 아니라 <b>CPA 단가</b>로 판정합니다 — '
+        f'양호 기준 {gcpa:,.0f}원'
+        + (f' ({REF_BUDGET_FOR_CPA:,}원당 DB {REF_DB_FOR_CPA}건)' if meta.get('use_stage') else ' (업종 중앙값)')
+        + '</div>',
+        unsafe_allow_html=True,
+    )
 
     total_budget = sum(r['budget'] for r in view)
     total_clicks = sum(r['exp_clicks'] for r in view)
