@@ -1026,12 +1026,8 @@ def build_recommendations(
         out.sort(key=_order)
     out = out[:12]
 
-    # 제안 총액을 최근 월 집행액에 맞춘다. 넘어가는 제안은 '추가 후보'로.
-    acc = 0.0
-    limit = monthly_budget * _BUDGET_FIT_MULT if monthly_budget else 0.0
-    for i, r in enumerate(out):
-        acc += float(r['budget'])
-        r['overflow'] = bool(limit and i > 0 and acc > limit)
+    # 실행/추가 후보 구분은 render 에서 입력받은 예산으로 계산한다.
+    # (여기서 고정하면 예산을 바꿀 때마다 제안 전체를 다시 계산해야 한다)
     for r in out:
         r['_meta'] = _meta
     return out
@@ -1255,23 +1251,46 @@ def render(df: pd.DataFrame):
         )
         return
 
-    # ── 요약 + 필터 ──
-    types = ['전체'] + [t for t in ['🆕 신규 진입', '📈 증액', '🔁 휴면 복귀', '✨ 신규 매체']
-                        if any(r['type'] == t for r in recs)]
-    col_f, col_m = st.columns([2.2, 1])
+    meta = recs[0].get('_meta', {}) if recs else {}
+
+    # ── 실행 예산 + 유형 필터 ──
+    auto_budget = float(meta.get('monthly_budget') or 0)
+    # 기본값은 최근 6개월 월 집행액 중앙값. 없으면 제안 전체 합계.
+    default_budget = auto_budget * _BUDGET_FIT_MULT if auto_budget else \
+        float(sum(r['budget'] for r in recs))
+    default_budget = max(round(default_budget / 1_000_000) * 1_000_000, 1_000_000)
+    col_f, col_b = st.columns([2.1, 1])
     with col_f:
+        types = ['전체'] + [t for t in ['🆕 신규 진입', '📈 증액', '🔁 휴면 복귀', '✨ 신규 매체']
+                            if any(r['type'] == t for r in recs)]
         sel = st.radio('제안 유형', types, horizontal=True,
                        key='mix_type', label_visibility='collapsed')
-    view = recs if sel == '전체' else [r for r in recs if r['type'] == sel]
-    with col_m:
-        st.markdown(
-            f'<div style="text-align:right;font-size:0.75rem;color:{COLOR_TEXT_SEC};'
-            f'padding-top:8px;">{esc_html_safe(brand)} · {esc_html_safe(industry)} 업종 기준</div>',
-            unsafe_allow_html=True,
+    with col_b:
+        budget_cap = st.number_input(
+            '실행 예산(원)', min_value=0, step=1_000_000,
+            value=int(default_budget), key=f'mix_budget_{brand}',
+            help=(f'이 예산 안에 들어가는 제안만 실행분으로 보고, 넘는 제안은 '
+                  f'추가 후보로 내립니다. 기본값은 최근 6개월 월 집행액 중앙값'
+                  f'({compact_num(auto_budget, "원")})의 '
+                  f'{_BUDGET_FIT_MULT:.1f}배입니다.' if auto_budget else
+                  '이 예산 안에 들어가는 제안만 실행분으로 보고, 넘는 제안은 '
+                  '추가 후보로 내립니다.'),
         )
+    view = recs if sel == '전체' else [r for r in recs if r['type'] == sel]
+
+    # 우선순위 순서대로 예산을 채운다. 들어가지 않는 제안은 건너뛰고
+    # 다음 제안을 보므로 남은 예산이 최대한 쓰인다 (우선순위는 유지).
+    # 첫 제안은 예산을 넘더라도 남겨 둔다 (빈 목록보다 낫다).
+    _acc = 0.0
+    for i, r in enumerate(view):
+        _b = float(r['budget'])
+        if not budget_cap or i == 0 or _acc + _b <= budget_cap:
+            _acc += _b
+            r['overflow'] = False
+        else:
+            r['overflow'] = True
 
     # 레퍼런스 범위 안내 — 어떤 기준으로 비교했는지 투명하게
-    meta = recs[0].get('_meta', {}) if recs else {}
     if meta.get('use_stage'):
         stg = meta.get('my_stage', '미상')
         dist = meta.get('my_dist', {})
@@ -1359,8 +1378,10 @@ def render(df: pd.DataFrame):
              if meta.get('db_driven') else
              (f'전체 {len(recs)}개 중' + (f' · 추가 후보 {len(extra)}개' if extra else ''))),
             ('실행 예산', compact_num(total_budget, '원'),
-             (f'최근 월 집행 {compact_num(monthly, "원")} 대비 '
-              f'{total_budget / monthly * 100:.0f}%') if monthly else '제안 합계'),
+             (f'입력 예산 {compact_num(budget_cap, "원")}의 '
+              f'{total_budget / budget_cap * 100:.0f}% · 잔액 '
+              f'{compact_num(max(budget_cap - total_budget, 0), "원")}')
+             if budget_cap else '제안 합계'),
             (('예상 총 DB', f'{db_total:,.0f}건',
               f'평균 CPA {db_budget / max(db_total, 1):,.0f}원 · '
               f'기준 충족 {n_good}개')
@@ -1449,8 +1470,10 @@ def render(df: pd.DataFrame):
         with st.expander(f'➕ 추가 후보 {len(extra)}개 — 최근 월 집행액을 넘는 제안',
                          expanded=False):
             st.caption(
-                f'위 실행 예산({compact_num(total_budget, "원")})에 더해 집행할 경우의 후보입니다.'
-                + (f' 최근 월 집행액은 {compact_num(monthly, "원")}입니다.' if monthly else '')
+                f'입력한 실행 예산 {compact_num(budget_cap, "원")}을 넘는 제안입니다. '
+                f'예산을 올리면 위 목록으로 올라옵니다.'
+                + (f' 최근 6개월 월 집행액 중앙값은 {compact_num(monthly, "원")}입니다.'
+                   if monthly else '')
             )
             for i, r in enumerate(extra, 1):
                 st.markdown(_rec_card(r, i), unsafe_allow_html=True)
@@ -1471,7 +1494,9 @@ def render(df: pd.DataFrame):
 
     # ── 운영팀 전달용 텍스트 ──
     st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
-    lines = [f'# {brand} 미디어 믹스 제안 ({industry} 업종)']
+    lines = [f'# {brand} 미디어 믹스 제안 ({industry} 업종)',
+             f'# 실행 예산 {budget_cap:,}원 (사용 {total_budget:,}원 · '
+             f'잔액 {max(budget_cap - total_budget, 0):,}원)' if budget_cap else '']
     if meta.get('db_driven'):
         lines.append(f'# 기준 CPA {gcpa:,.0f}원 이하 양호 · '
                      f'{gcpa * _CPA_POOR_MULT:,.0f}원 초과 제외 ({industry} 공통 기준)')
