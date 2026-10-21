@@ -34,7 +34,7 @@ from modules import (
     anomaly, budget_optimizer, budget_simulator, competitor, email_report,
     industry_timing, industry_intel, copy_analysis, monthly_pdf,
     media_trend, opportunity_media, overview, media_overview, industry_overview,
-    media_mix,
+    media_mix, send_timing,
     global_filter, targeting_analysis,
 )
 # copy_analysis는 네비에서 제외 (모듈은 보존 — 추후 NLP 카피 분석 참고용)
@@ -98,7 +98,8 @@ _NAV_ITEMS = [
         "cat": "운영", "label": "타겟팅 · 타이밍", "icon": "",
         "tabs": [
             {"label": "타겟팅 분석", "render": targeting_analysis.render, "scope": "client"},
-            {"label": "발송 타이밍", "render": industry_timing.render,    "scope": "client"},
+            {"label": "발송 타이밍", "render": send_timing.render,        "scope": "client"},
+            {"label": "업종 타이밍", "render": industry_timing.render,    "scope": "internal"},
         ],
     },
     {
