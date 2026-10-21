@@ -370,6 +370,31 @@ def render(df: pd.DataFrame):
         ),
     )
 
+    # ══════════════════════════════════════════════
+    # 📅 발송 스케줄 캘린더 — 페이지 최상단 (언제·누구에게·얼마나)
+    # ══════════════════════════════════════════════
+    st.markdown(
+        f'<div style="font-size:0.95rem;font-weight:600;color:{COLOR_TEXT};'
+        f'margin-bottom:6px;letter-spacing:-0.01em;">📅 발송 스케줄</div>'
+        f'<div style="font-size:0.75rem;color:{COLOR_TEXT_SEC};margin-bottom:10px;">'
+        f'언제 · 어느 매체에 · 얼마나 발송했고 광고비는 얼마였는지 달력으로 확인합니다.</div>',
+        unsafe_allow_html=True,
+    )
+    try:
+        from modules.schedule_calendar import render_calendar
+        render_calendar(df, key_prefix='ov')
+    except Exception as e:
+        st.caption(f'스케줄 캘린더를 표시할 수 없습니다: {type(e).__name__}')
+
+    st.markdown('<div class="space-lg"></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="font-size:0.95rem;font-weight:600;color:{COLOR_TEXT};'
+        f'margin-bottom:6px;letter-spacing:-0.01em;">📊 {esc_html_safe(cur_month)} 성과 요약</div>'
+        f'<div style="font-size:0.75rem;color:{COLOR_TEXT_SEC};margin-bottom:10px;">'
+        f'최신 월 기준 핵심 지표와 전월 대비 변화입니다.</div>',
+        unsafe_allow_html=True,
+    )
+
     # ── 업종 벤치마크 (있으면) ──
     bench_ctr_avg = None
     if industry:
