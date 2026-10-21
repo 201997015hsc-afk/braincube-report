@@ -51,6 +51,10 @@ _DB_DRIVEN_MIN_RATIO = 0.20     # 전체 캠페인 대비 비율
 #   그대로 통과해 '잘 나왔다'의 정의가 브랜드마다 달라진다.
 _CPA_POOR_MULT = 2.0
 
+# DB 수신 브랜드 레퍼런스만으로 제안이 이보다 적게 나오면
+# 전체 동종업계로 넓히고 '전환 미검증' 표시를 붙인다.
+_MIN_RECS_BEFORE_RELAX = 3
+
 # 메시징 최소 유효 단가(원). 이보다 낮으면 단가 미입력·패키지 정산 등
 # 데이터 공백으로 보고 예산·CPA 산출에 쓰지 않는다.
 #   (실사례: 온리원 ASUM 패키지 단가 1원 → 예상 CPA 2,667원으로 1순위 추천됨.
@@ -327,7 +331,25 @@ def _best_target_for(df: pd.DataFrame, media: str) -> tuple[str, str]:
 def build_recommendations(
     _full: pd.DataFrame, brand: str, industry: str, cache_key: str
 ) -> list[dict]:
-    """4유형 제안 생성. (cache_key는 캐시 무효화용 — 데이터 크기·최신일자)"""
+    """4유형 제안 생성. (cache_key는 캐시 무효화용 — 데이터 크기·최신일자)
+
+    DB 광고주는 'DB를 전달받는 브랜드'의 실적만 레퍼런스로 쓰는 게 원칙이다.
+    다만 그 조건으로 제안이 거의 안 나오는 광고주가 있다 — 업종에 DB 수신
+    브랜드가 1~2개뿐인 경우(금융: 메리츠화재 펫보험·한화손해보험)나
+    자사만 그 학령을 하는 경우(엠베스트=중등)다.
+    그럴 때는 전체 동종업계로 넓히되, 전환이 검증되지 않은 제안에는
+    표시를 달아 구분한다. 빈 화면보다는 '근거가 약하다고 명시된 제안'이 낫다.
+    """
+    recs = _build_recs(_full, brand, industry, strict_db_ref=True)
+    if len(recs) >= _MIN_RECS_BEFORE_RELAX:
+        return recs
+    relaxed = _build_recs(_full, brand, industry, strict_db_ref=False)
+    return relaxed if len(relaxed) > len(recs) else recs
+
+
+def _build_recs(
+    _full: pd.DataFrame, brand: str, industry: str, *, strict_db_ref: bool = True
+) -> list[dict]:
     if _full is None or _full.empty:
         return []
     full = _full.copy()
@@ -344,6 +366,9 @@ def build_recommendations(
     me = full[full['_브랜드'] == brand].copy()
     if me.empty:
         return []
+
+    # 이 광고주에게 DB(전환)가 핵심 KPI인지 — 레퍼런스를 고르기 전에 판정한다.
+    db_driven = _shared_is_db_driven(me)
 
     # 자사 주력 자녀 연령 스테이지 — 레퍼런스를 고를 때의 기준
     my_stage, my_dist = _main_stage(me) if use_stage else ('미상', {})
@@ -392,13 +417,44 @@ def build_recommendations(
             others = same_stage
             stage_filtered = True
 
+    # ⚠ DB 광고주에게는 **DB를 전달받는 브랜드의 실적만** 레퍼런스로 쓴다.
+    #   윙크·캐츠잉글리시·웅진스마트올은 광고주에게서 DB를 못 받아
+    #   그 매체에서 전환이 됐는지 자체를 알 수 없다. 이들의 CTR로 매체를 고르면
+    #   DB 광고주 입장에선 '전환이 검증되지 않은' 추천이 된다.
+    #   (실사례: 온리원에 KT·BC카드 CNCAD가 '캐츠잉글리시 CTR' 근거로 추천됨)
+    #   학령 필터를 먼저 걸고 나서 적용한다 — 연령 매칭을 희생하지 않기 위해서다.
+    #   남는 레퍼런스가 없으면 타사 기반 제안(신규 진입·신규 매체)은 포기하고
+    #   자사 실적 기반(휴면 복귀·증액)만 제안한다.
+    db_ref_only = False
+    db_brands: set[str] = set()
+    if db_driven and '_브랜드' in others.columns:
+        db_brands = {b for b in others['_브랜드'].dropna().astype(str).unique()
+                     if _shared_is_db_driven(full[full['_브랜드'].astype(str) == b])}
+        if strict_db_ref:
+            others = others[others['_브랜드'].astype(str).isin(db_brands)]
+            db_ref_only = True
+
+    def _ref_verified(brands) -> bool:
+        """이 매체의 레퍼런스에 DB를 전달받는 브랜드가 하나라도 있는지."""
+        if not db_driven:
+            return True
+        return bool(set(map(str, brands)) & db_brands)
+
+    def _ref_table(q: pd.DataFrame) -> pd.DataFrame:
+        """동종업계 매체별 CTR·단가 집계. 레퍼런스가 비면 빈 테이블."""
+        cols = ['매체', '브랜드수', '캠페인수', '발송', '클릭', '단가', 'CTR']
+        if q.empty:
+            return pd.DataFrame(columns=cols)
+        t = q.groupby('매체').agg(
+            브랜드수=('_브랜드', 'nunique'), 캠페인수=('매체', 'size'),
+            발송=('발송건', 'sum'), 클릭=('클릭수', lambda x: x.fillna(0).sum()),
+            단가=('실단가', 'median') if '실단가' in q.columns else ('단가', 'median'),
+        ).reset_index()
+        t['CTR'] = t.apply(lambda r: _ctr(r['클릭'], r['발송']), axis=1)
+        return t
+
     others_q = _qual(others)
-    ref = others_q.groupby('매체').agg(
-        브랜드수=('_브랜드', 'nunique'), 캠페인수=('매체', 'size'),
-        발송=('발송건', 'sum'), 클릭=('클릭수', lambda x: x.fillna(0).sum()),
-        단가=('실단가', 'median') if '실단가' in others_q.columns else ('단가', 'median'),
-    ).reset_index()
-    ref['CTR'] = ref.apply(lambda r: _ctr(r['클릭'], r['발송']), axis=1)
+    ref = _ref_table(others_q)
     ref_map = {r['매체']: r for _, r in ref.iterrows()}
 
     _ucol = '실단가' if '실단가' in full.columns else '단가'
@@ -472,14 +528,15 @@ def build_recommendations(
             'unit': _unit_price(media),
             'target': tgt_s, 'target_raw': tgt_raw,
             'why': f'{industry} 업종 {int(r["브랜드수"])}개사 검증 · 자사 미집행',
-            'score': float(r['CTR']) * (1.0 + 0.1 * int(r['브랜드수'])),
+            'score': float(r['CTR']) * (1.0 + 0.1 * int(r['브랜드수']))
+                     * (1.0 if _ref_verified(brands) else 0.3),
             'evidence': f'활용: {", ".join(brands)}' + (' 외' if int(r['브랜드수']) > 3 else ''),
+            'unverified_ref': not _ref_verified(brands),
         })
 
     # ── 📈 증액 (최근 2개월 자사 성과 우수) ──
     # ⚠ DB(전환) 추적 매체는 CTR이 아니라 **CPA 단가**로 판정한다.
     #   CTR이 높아도 전환이 안 되면 광고주 입장에선 실패한 캠페인이다.
-    db_driven = _shared_is_db_driven(me)
     # 예상 DB·CPA 산출용 전환율 테이블 (자사 우선, 동종업계 보조)
     my_tbl = _db_rate_table(me) if db_driven else {'media': {}, 'media_prod': {}, 'product': {}, 'overall': None}
     ref_tbl = _db_rate_table(others) if db_driven else {'media': {}, 'media_prod': {}, 'product': {}, 'overall': None}
@@ -581,14 +638,19 @@ def build_recommendations(
         if c <= 0:
             continue  # 성과 레퍼런스가 전혀 없으면 추천 근거가 없다
         tgt_s, tgt_raw = _best_target_for(others, media)
+        _sub_brands = set(sub['_브랜드'].dropna().astype(str)) if '_브랜드' in sub.columns else set()
         recs.append({
             'type': '✨ 신규 매체', 'tone': COLOR_BLUE, 'media': media,
             'ctr': c, 'ctr_src': f'동종업계 {len(sub)}건' if len(sub) else '레퍼런스 없음',
             'qty': 30_000, 'unit': _unit_price(media),
             'target': tgt_s, 'target_raw': tgt_raw,
             'why': f'최근 {_NEW_MEDIA_DAYS}일 내 {industry} 업종에 처음 등장 — 선점 기회',
-            'score': (c if c > 0 else 1.0) * 0.9,
-            'evidence': '업종 내 신규 매체',
+            'score': (c if c > 0 else 1.0) * 0.9
+                     * (1.0 if _ref_verified(_sub_brands) else 0.3),
+            'evidence': '업종 내 신규 매체'
+                        + ('' if _ref_verified(_sub_brands)
+                           else f' · 레퍼런스: {", ".join(sorted(_sub_brands)[:3])}'),
+            'unverified_ref': not _ref_verified(_sub_brands),
         })
 
     # 중복 매체 제거 (점수 높은 제안 우선) + 상위 12개만
@@ -598,7 +660,7 @@ def build_recommendations(
         'my_stage': my_stage, 'my_dist': my_dist,
         'stage_filtered': stage_filtered, 'good_cpa': good_cpa,
         'db_driven': db_driven, 'my_cpa_base': my_cpa_base,
-        'use_stage': use_stage,
+        'use_stage': use_stage, 'db_ref_only': db_ref_only,
     }
     seen, out = set(), []
     for r in recs:
@@ -704,7 +766,11 @@ def _rec_card(r: dict, rank: int) -> str:
         f'padding:2px 8px;border-radius:999px;font-weight:700;">{r["type"]}</span>'
         f'      <span style="font-size:1rem;color:{COLOR_TEXT};font-weight:700;">'
         f'{esc_html_safe(r["media"])}</span>'
-        f'    </div>'
+        + (f'      <span style="font-size:0.6rem;color:{COLOR_WARNING};'
+           f'border:1px solid {COLOR_WARNING};padding:1px 6px;border-radius:999px;'
+           f'font-weight:700;" title="DB를 전달받지 못하는 광고주의 CTR 실적만 있는 매체입니다">'
+           f'전환 미검증</span>' if r.get('unverified_ref') else '')
+        + f'    </div>'
         f'    <div style="text-align:right;">'
         + (
             f'      <div style="font-size:1.25rem;color:{r.get("exp_grade_color") or tone};'
@@ -832,6 +898,11 @@ def render(df: pd.DataFrame):
             note = (f'자녀 <b>{esc_html_safe(stg)}</b> 타겟 캠페인만 레퍼런스로 비교했습니다 '
                     f'({dist_txt}). 학령이 다른 광고주 성과는 제외됩니다.')
             tone, icon = COLOR_SUCCESS, '✅'
+            if meta.get('db_ref_only') and not any(
+                    r['type'].endswith(('신규 진입', '신규 매체')) for r in recs):
+                note += (' 이 학령에서 <b>DB가 검증된 타사 레퍼런스가 없어</b> '
+                         '타사 기반 신규 매체 제안은 생략하고 자사 실적 기반만 제시합니다.')
+                tone, icon = COLOR_WARNING, '⚠'
         else:
             note = (f'자사 주력은 <b>{esc_html_safe(stg)}</b>({dist_txt})이지만 같은 학령의 '
                     f'타사 캠페인이 부족해 업종 전체를 참고했습니다. '
@@ -857,8 +928,11 @@ def render(df: pd.DataFrame):
             f'브랜드별 자사 평균은 쓰지 않습니다. '
             f'{gcpa:,.0f}원 이하 <b>양호</b> / {gcpa * _CPA_POOR_MULT:,.0f}원 이내 보통 / '
             f'초과는 제안에서 제외 · '
-            f'예상 DB = 추천 물량 × 전환율(자사 해당 매체 → 동종업계 → 자사 평균 순으로 적용)'
-            f'{base_txt}'
+            f'예상 DB = 추천 물량 × 전환율(자사 해당 매체·상품 → 동종업계 → 자사 평균 순으로 적용)'
+            + ('<br>레퍼런스는 <b>DB를 전달받는 광고주</b>의 실적만 사용합니다 '
+               '— 윙크·캐츠잉글리시처럼 DB를 못 받는 광고주의 CTR은 전환 검증이 안 되므로 제외'
+               if meta.get('db_ref_only') else '')
+            + base_txt
         )
     else:
         criteria = (
@@ -920,7 +994,8 @@ def render(df: pd.DataFrame):
     lines.append('')
     for r in view:
         lines.append(f'[{r["type"]}] {r["media"]}'
-                     + (f' — {r["exp_grade"]}' if r.get('exp_grade') else ''))
+                     + (f' — {r["exp_grade"]}' if r.get('exp_grade') else '')
+                     + (' (전환 미검증)' if r.get('unverified_ref') else ''))
         if r.get('exp_db'):
             _ql = 'DB 물량' if r.get('cpa_product') else '물량'
             lines.append(f'  - {_ql} {r["qty"]:,}건 / 예산 {r["budget"]:,}원 / '
