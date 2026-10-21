@@ -371,7 +371,16 @@ def render(df: pd.DataFrame):
     )
 
     # ══════════════════════════════════════════════
-    # 📅 발송 스케줄 캘린더 — 페이지 최상단 (언제·누구에게·얼마나)
+    # 🚨 운영 체크 — 조치 필요 항목을 가장 먼저 (출근 후 첫 확인)
+    # ══════════════════════════════════════════════
+    try:
+        from modules.ops_alerts import render_inline as _render_alerts
+        _render_alerts(df)
+    except Exception:
+        pass
+
+    # ══════════════════════════════════════════════
+    # 📅 발송 스케줄 캘린더 (언제·누구에게·얼마나)
     # ══════════════════════════════════════════════
     st.markdown(
         f'<div style="font-size:0.95rem;font-weight:600;color:{COLOR_TEXT};'
