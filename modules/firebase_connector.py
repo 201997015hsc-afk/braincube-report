@@ -115,6 +115,7 @@ _FIELD_MAP = {
     'note':     '비고',
     'seller':   '셀러',
     'daAdcost': '_DA매출액',  # DA 광고 정액 매출 (별도 보관, 광고비 계산에 사용)
+    'billBase': '_청구기준',   # actual(실발송) / sched(예약) / 신청수 / da / 결제건수 ...
 }
 
 
@@ -148,8 +149,41 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
 
     # ── 정산수량 계산 — Firebase 대시보드 정의 ──
     # 정산수량 = 요청수량 - 서비스(차감)
-    # 매출/매입 모두 정산수량 기준으로 계산됨
     df['정산수량'] = (df['요청수량'].fillna(0) - df['서비스'].fillna(0)).clip(lower=0)
+
+    # ── 실청구 기준 수량·단가 ──
+    # billBase(_청구기준)가 캠페인별 청구 기준을 지정:
+    #   actual  → 실발송 수량으로 청구 (전체의 ~83%)
+    #   sched   → 예약(정산)수량으로 청구
+    #   신청수/결제건수/로그인수 → DB(전환) 수로 청구 (CPA류)
+    #   da      → DA 정액 (별도 daAdcost 사용)
+    # disc(할인)는 "할인액"이 아니라 **할인 적용 후 실단가**
+    #   (전수 검증: disc > sellUnit 인 건 0, 비율 0.9/0.78/1.0 등)
+    _raw_actual = pd.to_numeric(df['발송건'], errors='coerce') if '발송건' in df.columns else None
+    _settle = df['정산수량']
+    _bb = (
+        df['_청구기준'].astype(str).str.strip()
+        if '_청구기준' in df.columns else pd.Series('', index=df.index)
+    )
+    _db_num = pd.to_numeric(df['DB'], errors='coerce').fillna(0) if 'DB' in df.columns else 0
+
+    if _raw_actual is not None:
+        _actual_or_settle = _raw_actual.where(_raw_actual.notna(), _settle)
+    else:
+        _actual_or_settle = _settle
+    df['청구수량'] = np.select(
+        [
+            _bb == 'actual',
+            _bb.isin(['신청수', '결제건수', '로그인수']),
+        ],
+        [_actual_or_settle, _db_num],
+        default=_settle,
+    )
+    df['청구수량'] = pd.to_numeric(df['청구수량'], errors='coerce').fillna(0).clip(lower=0)
+
+    # 실청구 단가: 할인가(disc)가 있으면 그것, 없으면 명목 단가(sellUnit)
+    _disc = df['할인'].fillna(0) if '할인' in df.columns else 0
+    df['실단가'] = np.where(_disc > 0, _disc, df['단가'].fillna(0))
 
     # ── 광고상품 의미론 정리 ──
     # 광고상품별 "발송건" 의미가 다름:
@@ -175,23 +209,17 @@ def _docs_to_dataframe(docs: list) -> pd.DataFrame:
         df['노출수'] = 0
         df['_노출_클릭수'] = 0
 
-    # ── 광고비 (= 매출액) 계산 — Firebase 대시보드 공식 ──
-    # 메시징 (LMS/MMS/PUSH/실시간/카톡MSG): 정산수량 × 단가(sellUnit)
-    # CPA: 정산수량(=요청수량, svc=0) × 단가
+    # ── 광고비 (= 실청구 금액) 계산 ──
+    # 실청구금액 = 청구수량(billBase 기준) × 실단가(할인 적용 후)
     # DA: _DA매출액(daAdcost) 정액 매출 필드 사용
-    df['금액'] = df['요청수량'] * df['단가']  # 참고용 — 요청 기반 비용
-    if '광고상품' in df.columns:
-        _prod_upper = df['광고상품'].astype(str).str.upper()
-        # 기본: 정산수량 × 단가 (LMS/MMS/CPA 모두 적용)
-        df['광고비'] = df['정산수량'] * df['단가']
-        # DA만 별도: daAdcost(_DA매출액) 사용
-        if '_DA매출액' in df.columns:
-            _da_mask = _prod_upper == 'DA'
-            df.loc[_da_mask, '광고비'] = pd.to_numeric(
-                df.loc[_da_mask, '_DA매출액'], errors='coerce'
-            ).fillna(0)
-    else:
-        df['광고비'] = df['발송건'] * df['단가']
+    df['금액'] = df['요청수량'] * df['단가']  # 참고용 — 요청 기반 명목 비용
+    df['_명목광고비'] = df['정산수량'] * df['단가']  # 참고용 — 할인 전 정산 기준
+    df['광고비'] = df['청구수량'] * df['실단가']
+    if '광고상품' in df.columns and '_DA매출액' in df.columns:
+        _da_mask = df['광고상품'].astype(str).str.upper() == 'DA'
+        df.loc[_da_mask, '광고비'] = pd.to_numeric(
+            df.loc[_da_mask, '_DA매출액'], errors='coerce'
+        ).fillna(0)
 
     # ── 날짜 파싱 ("2026-02-04 11:00" → datetime) ──
     if '일자' in df.columns:
@@ -407,11 +435,19 @@ def load_advertiser_data(advertiser_name: str) -> pd.DataFrame | None:
         _rename_map['매체'] = '매체명'
     if '광고비' in adv_df.columns:
         _rename_map['광고비'] = '집행금액'
-    if '정산수량' in adv_df.columns:
-        # 발송량 = 정산수량 (요청수량 - 서비스). 매출/매입 모두 이 기준
+    # 발송량 = 실제 청구/발송 기준 수량 (청구수량).
+    #   billBase=actual 인 캠페인(전체 83%)은 실발송 수량이 반영되므로
+    #   예약수량(정산수량)만 쓰던 기존 방식의 오차가 사라진다.
+    #   DA/CPA는 메시지 발송이 아니므로 0 처리 (노출수/DB는 별도 컬럼 유지).
+    if '청구수량' in adv_df.columns:
+        _msg_mask = (
+            ~adv_df['광고상품'].astype(str).str.upper().isin(['DA', 'CPA'])
+            if '광고상품' in adv_df.columns else True
+        )
+        adv_df['발송량'] = np.where(_msg_mask, adv_df['청구수량'], 0)
+    elif '정산수량' in adv_df.columns:
         _rename_map['정산수량'] = '발송량'
     elif '발송건' in adv_df.columns:
-        # 폴백 (구버전 호환)
         _rename_map['발송건'] = '발송량'
     if _rename_map:
         adv_df = adv_df.rename(columns=_rename_map)

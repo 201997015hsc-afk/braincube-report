@@ -14,6 +14,7 @@
   - 캘린더 아래: 같은 월 발송 상세 표 (일자·매체·상품·발송·클릭·CTR·광고비·DB)
 """
 import calendar
+import re
 from datetime import date
 
 import streamlit as st
@@ -28,6 +29,45 @@ from modules.config import (
 from modules.ui_helpers import render_empty_state, esc_html_safe
 
 _WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
+
+# 타겟 요약용 — 연령·성별과 대표 시그널 키워드
+_RE_AGE = re.compile(r'(\d{2})\s*[-~]\s*(\d{2})\s*세?')
+_SIGNAL_KEYWORDS = [
+    '유치원', '어린이집', '초등', '중등', '중학', '고등', '스쿨뱅킹', '산후조리원',
+    '국민행복카드', '이유식', '기저귀', '학원', '수발신', '통화', '교복', '키즈',
+    '소아과', '치과', '아동복', '도서', '참고서', '캠핑', '여행', '보험', '카드',
+]
+
+
+def _summarize_target(raw) -> str:
+    """타겟 원문 → 캘린더 셀에 들어갈 한 줄 요약.
+
+    예) "35-54세 여성중 / 1년내 초등학교 수발신대상자" → "35-54세 여성·초등·수발신"
+    """
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        return ''
+    s = str(raw).strip()
+    if not s:
+        return ''
+    flat = re.sub(r'\s+', ' ', s.replace('\n', ' '))
+
+    parts = []
+    m = _RE_AGE.search(flat)
+    if m:
+        parts.append(f'{m.group(1)}-{m.group(2)}세')
+    if re.search(r'남녀|남성.*여성|여성.*남성', flat):
+        parts.append('남녀')
+    elif re.search(r'여성|여자', flat):
+        parts.append('여성')
+    elif re.search(r'남성|남자', flat):
+        parts.append('남성')
+
+    sigs = [k for k in _SIGNAL_KEYWORDS if k in flat][:2]
+    parts.extend(sigs)
+
+    if not parts:
+        return flat[:18] + ('…' if len(flat) > 18 else '')
+    return '·'.join(parts)
 
 
 def _cell_bg(ratio: float) -> str:
@@ -60,33 +100,41 @@ def _day_cell_html(
 
     body = ''
     if has:
-        medias = info['매체목록']
-        chips = ''.join(
-            f'<div style="font-size:0.63rem;color:{COLOR_TEXT};font-weight:600;'
-            f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
-            f'line-height:1.35;">{esc_html_safe(m)}</div>'
-            for m in medias[:2]
-        )
-        if len(medias) > 2:
-            chips += (
-                f'<div style="font-size:0.6rem;color:{COLOR_TEXT_TER};line-height:1.3;">'
-                f'+{len(medias) - 2}개</div>'
+        # 그날의 모든 캠페인을 한 줄씩 — 생략(+N) 없음
+        lines = []
+        for c in info['캠페인목록']:
+            tgt = c.get('타겟요약', '')
+            tgt_html = (
+                f'<div style="font-size:0.56rem;color:{COLOR_TEXT_TER};line-height:1.3;'
+                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                f'{esc_html_safe(tgt)}</div>'
+                if tgt else ''
             )
-        cost_line = (
-            f'<div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};line-height:1.3;">'
-            f'{compact_num(info["광고비"], "원")}</div>'
-            if info['광고비'] > 0 else ''
-        )
-        body = (
-            f'<div style="margin-top:3px;">{chips}'
-            f'<div style="font-size:0.63rem;color:{BRAND_PRIMARY};font-weight:700;'
-            f'line-height:1.35;">{compact_num(info["발송"], "건")}</div>'
-            f'{cost_line}</div>'
-        )
+            qty_cost = compact_num(c['발송'], '건') if c['발송'] > 0 else ''
+            if c['광고비'] > 0:
+                qty_cost = (
+                    f'{qty_cost} · {compact_num(c["광고비"], "원")}'
+                    if qty_cost else compact_num(c['광고비'], '원')
+                )
+            lines.append(
+                f'<div style="border-top:1px dotted {COLOR_BORDER_SUBTLE};padding-top:2px;'
+                f'margin-top:2px;">'
+                f'  <div style="font-size:0.6rem;color:{COLOR_TEXT};font-weight:700;'
+                f'line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+                f'{esc_html_safe(c["매체"])}'
+                + (f'<span style="color:{COLOR_TEXT_TER};font-weight:500;"> {esc_html_safe(c["상품"])}</span>'
+                   if c.get('상품') else '')
+                + f'</div>'
+                f'  {tgt_html}'
+                f'  <div style="font-size:0.58rem;color:{BRAND_PRIMARY};font-weight:600;'
+                f'line-height:1.3;">{qty_cost}</div>'
+                f'</div>'
+            )
+        body = f'<div style="margin-top:2px;">{"".join(lines)}</div>'
 
     return (
         f'<div style="min-height:88px;border:{border_w} solid {border};border-radius:8px;'
-        f'background:{bg};padding:6px 7px;overflow:hidden;">'
+        f'background:{bg};padding:5px 6px;">'
         f'  <div style="font-size:0.68rem;color:{num_color};font-weight:600;">{day}</div>'
         f'  {body}'
         f'</div>'
@@ -146,11 +194,20 @@ def render_calendar(df: pd.DataFrame, *, key_prefix: str = 'sched') -> None:
         클릭=('클릭수', lambda x: x.fillna(0).sum()),
         광고비=('집행금액', 'sum'),
     )
-    media_by_day = (
-        month_df.groupby(month_df['_d'].dt.day)['매체명']
-        .apply(lambda s: sorted(set(s.dropna().astype(str))))
-        .to_dict()
-    )
+    # 날짜별 캠페인 목록 (매체·상품·발송·광고비·타겟요약)
+    camps_by_day: dict[int, list[dict]] = {}
+    for _, r in month_df.iterrows():
+        d = int(r['_d'].day)
+        camps_by_day.setdefault(d, []).append({
+            '매체': str(r.get('매체명', '') or '—'),
+            '상품': str(r.get('광고상품', '') or ''),
+            '발송': float(r.get('발송량', 0) or 0),
+            '광고비': float(r.get('집행금액', 0) or 0),
+            '타겟요약': _summarize_target(r.get('타겟')),
+        })
+    for d in camps_by_day:
+        camps_by_day[d].sort(key=lambda c: -c['광고비'])
+
     day_map = {}
     for d, row in daily.iterrows():
         day_map[int(d)] = {
@@ -158,7 +215,7 @@ def render_calendar(df: pd.DataFrame, *, key_prefix: str = 'sched') -> None:
             '발송': float(row['발송']),
             '클릭': float(row['클릭']),
             '광고비': float(row['광고비']),
-            '매체목록': media_by_day.get(d, []),
+            '캠페인목록': camps_by_day.get(int(d), []),
         }
 
     total_send = float(month_df['발송량'].sum())

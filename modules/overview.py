@@ -451,6 +451,16 @@ def render(df: pd.DataFrame):
     # DB = 가입/상담신청 등 전환 수. CPDB = DB보유 캠페인 광고비 ÷ DB.
     if 'DB' in df.columns:
         _db_cur = cur[pd.to_numeric(cur['DB'], errors='coerce').fillna(0) > 0].copy()
+        # 당월 전환이 없어도 과거 전환 실적이 있으면 숨기지 않고
+        # 가장 최근 전환이 있었던 월 기준으로 보여준다 (CPA가 사라지는 문제 방지)
+        _db_scope = f'{cur_month} 전환 추적'
+        if _db_cur.empty:
+            _db_all = df[pd.to_numeric(df['DB'], errors='coerce').fillna(0) > 0].copy()
+            if not _db_all.empty and '년월' in _db_all.columns:
+                _last_db_month = sorted(_db_all['년월'].dropna().unique())[-1]
+                _db_cur = _db_all[_db_all['년월'] == _last_db_month].copy()
+                _db_scope = f'{_last_db_month} 기준 (최근 전환 발생 월)'
+                prev_month = None  # 비교 기준 월이 달라지므로 전월비는 생략
         if not _db_cur.empty:
             _db_cur['_DB'] = pd.to_numeric(_db_cur['DB'], errors='coerce')
             cur_db = float(_db_cur['_DB'].sum())
@@ -479,7 +489,7 @@ def render(df: pd.DataFrame):
                 f'<div style="font-size:0.78rem;font-weight:600;color:{COLOR_TEXT};'
                 f'margin:4px 0 8px 0;">💰 DB(전환) 성과'
                 f'<span style="font-weight:400;color:{COLOR_TEXT_SEC};font-size:0.72rem;"> — '
-                f'전환 추적 캠페인 {len(_db_cur)}건 기준</span></div>',
+                f'{esc_html_safe(_db_scope)} · 캠페인 {len(_db_cur)}건</span></div>',
                 unsafe_allow_html=True,
             )
             d1, d2, d3 = st.columns(3)

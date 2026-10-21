@@ -5,6 +5,7 @@ Toss-style UI · 사이드바(브랜딩, 네비게이션, 필터, 다운로드) 
 """
 import io
 import os
+import re
 from datetime import datetime
 
 import streamlit as st
@@ -195,6 +196,24 @@ def _render_nav_page(nav_item: dict, df):
 # ──────────────────────────────────────────────
 # 다운로드 바이트 캐시
 # ──────────────────────────────────────────────
+# Excel(openpyxl)이 허용하지 않는 제어문자 — \t\n\r 제외한 C0 영역
+_XLSX_ILLEGAL = re.compile(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]')
+
+
+def _sanitize_for_excel(df: pd.DataFrame) -> pd.DataFrame:
+    """문자열 셀의 제어문자 제거. openpyxl IllegalCharacterError 방지.
+
+    실데이터 사례: 타겟 텍스트에 \x0b(수직탭)이 섞여 들어와 엑셀 저장이 실패.
+    """
+    out = df.copy()
+    for col in out.columns:
+        if out[col].dtype == object:
+            out[col] = out[col].map(
+                lambda v: _XLSX_ILLEGAL.sub(' ', v) if isinstance(v, str) else v
+            )
+    return out
+
+
 def _build_download_cache(df: pd.DataFrame):
     """데이터가 바뀔 때만 CSV·Excel 바이트를 재생성하고, PPTX 캐시를 무효화한다."""
     sig = f"{len(df)}_{df['날짜'].min()}_{df['날짜'].max()}"
@@ -204,7 +223,7 @@ def _build_download_cache(df: pd.DataFrame):
     st.session_state['_csv'] = df.to_csv(index=False).encode('utf-8-sig')
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='분석데이터')
+        _sanitize_for_excel(df).to_excel(writer, index=False, sheet_name='분석데이터')
     st.session_state['_xlsx'] = buf.getvalue()
     st.session_state.pop('_pptx', None)  # 데이터 변경 → PPTX 무효화
     st.session_state.pop('_pdf', None)   # 데이터 변경 → PDF 무효화
