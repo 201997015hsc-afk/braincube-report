@@ -121,39 +121,79 @@ def _verify_remember_token(token: str) -> str | None:
 
 
 def _remember_js(action: str, token: str = "") -> None:
-    """브라우저 localStorage 제어 (저장/삭제/자동복원). 높이 0 컴포넌트."""
+    """브라우저에 자동 로그인 토큰 저장/삭제/복원.
+
+    Streamlit Cloud에서 components.html 은 교차 출처(iframe)로 뜨는 경우가 있어
+    window.parent 접근이 차단될 수 있다. 그래서 저장소를 이중화한다:
+      1) 쿠키 (document.cookie) — 서버가 st.context.cookies 로 직접 읽을 수 있음
+      2) localStorage — 쿠키가 막힌 환경 대비, 쿼리 파라미터 리로드로 전달
+    각 단계는 개별 try/catch 라 하나가 막혀도 나머지가 동작한다.
+    """
     try:
         import streamlit.components.v1 as components
     except Exception:
         return
 
+    max_age = _REMEMBER_DAYS * 86400
     if action == "save":
         script = f"""
-        try {{ window.localStorage.setItem('{_LS_KEY}', '{token}'); }} catch(e) {{}}
-        try {{ window.parent.localStorage.setItem('{_LS_KEY}', '{token}'); }} catch(e) {{}}
+        var T='{token}', K='{_LS_KEY}';
+        function setCookie(doc) {{
+          try {{ doc.cookie = K+'='+T+'; path=/; max-age={max_age}; SameSite=Lax'; }} catch(e) {{}}
+        }}
+        setCookie(document);
+        try {{ setCookie(window.parent.document); }} catch(e) {{}}
+        try {{ setCookie(window.top.document); }} catch(e) {{}}
+        try {{ window.localStorage.setItem(K, T); }} catch(e) {{}}
+        try {{ window.parent.localStorage.setItem(K, T); }} catch(e) {{}}
         """
     elif action == "clear":
         script = f"""
-        try {{ window.localStorage.removeItem('{_LS_KEY}'); }} catch(e) {{}}
-        try {{ window.parent.localStorage.removeItem('{_LS_KEY}'); }} catch(e) {{}}
-        try {{ window.parent.sessionStorage.removeItem('{_LS_KEY}_tried'); }} catch(e) {{}}
+        var K='{_LS_KEY}';
+        function delCookie(doc) {{
+          try {{ doc.cookie = K+'=; path=/; max-age=0; SameSite=Lax'; }} catch(e) {{}}
+        }}
+        delCookie(document);
+        try {{ delCookie(window.parent.document); }} catch(e) {{}}
+        try {{ delCookie(window.top.document); }} catch(e) {{}}
+        try {{ window.localStorage.removeItem(K); }} catch(e) {{}}
+        try {{ window.parent.localStorage.removeItem(K); }} catch(e) {{}}
+        try {{ window.parent.sessionStorage.removeItem(K+'_tried'); }} catch(e) {{}}
+        try {{ window.sessionStorage.removeItem(K+'_tried'); }} catch(e) {{}}
         """
-    else:  # restore — 토큰이 있으면 쿼리 파라미터로 1회 리로드
+    else:  # restore — localStorage 토큰을 쿼리 파라미터로 1회 전달
         script = f"""
+        var K='{_LS_KEY}';
         try {{
           var W = window.parent || window;
-          var ls = W.localStorage, ss = W.sessionStorage;
-          var t = ls.getItem('{_LS_KEY}');
+          var t = null;
+          try {{ t = W.localStorage.getItem(K); }} catch(e) {{}}
+          if (!t) {{ try {{ t = window.localStorage.getItem(K); }} catch(e) {{}} }}
+          if (!t) return;
+          var ss = null;
+          try {{ ss = W.sessionStorage; }} catch(e) {{ ss = window.sessionStorage; }}
+          if (ss && ss.getItem(K+'_tried')) return;
           var url = new URL(W.location.href);
-          if (t && !url.searchParams.has('{_TOKEN_PARAM}')
-                && !ss.getItem('{_LS_KEY}_tried')) {{
-            ss.setItem('{_LS_KEY}_tried', '1');
-            url.searchParams.set('{_TOKEN_PARAM}', t);
-            W.location.replace(url.toString());
-          }}
+          if (url.searchParams.has('{_TOKEN_PARAM}')) return;
+          if (ss) ss.setItem(K+'_tried', '1');
+          url.searchParams.set('{_TOKEN_PARAM}', t);
+          W.location.replace(url.toString());
         }} catch(e) {{}}
         """
-    components.html(f"<script>{script}</script>", height=0)
+    components.html(f"<script>(function(){{{script}}})();</script>", height=0)
+
+
+def _cookie_token() -> str | None:
+    """서버에서 직접 읽는 쿠키 토큰 (Streamlit 1.42+ st.context.cookies)."""
+    try:
+        cookies = getattr(st.context, "cookies", None)
+        if cookies:
+            val = cookies.get(_LS_KEY)
+            if val:
+                return str(val)
+    except Exception:
+        pass
+    return None
 
 
 def try_auto_login() -> bool:
@@ -163,6 +203,26 @@ def try_auto_login() -> bool:
     """
     if is_logged_in():
         return True
+
+    # 0) 쿠키에 토큰이 있으면 리로드 없이 바로 복원 (가장 빠른 경로)
+    ck = _cookie_token()
+    if ck:
+        username = _verify_remember_token(ck)
+        if username:
+            users = _load_users()
+            user = users.get(username)
+            if user:
+                st.session_state["_auth_user"] = {
+                    "username": username,
+                    "role": user["role"],
+                    "name": user["name"],
+                    "allowed_clients": user.get("allowed_clients", []),
+                }
+                st.session_state["_auto_logged_in"] = True
+                return True
+        else:
+            _remember_js("clear")
+
     # 1) 쿼리 파라미터에 토큰이 실려 왔으면 검증
     try:
         token = st.query_params.get(_TOKEN_PARAM)

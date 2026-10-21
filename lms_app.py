@@ -201,16 +201,33 @@ _XLSX_ILLEGAL = re.compile(r'[\x00-\x08\x0b-\x0c\x0e-\x1f]')
 
 
 def _sanitize_for_excel(df: pd.DataFrame) -> pd.DataFrame:
-    """문자열 셀의 제어문자 제거. openpyxl IllegalCharacterError 방지.
+    """문자열 셀·컬럼명의 제어문자 제거. openpyxl IllegalCharacterError 방지.
 
     실데이터 사례: 타겟 텍스트에 \x0b(수직탭)이 섞여 들어와 엑셀 저장이 실패.
+
+    ⚠ dtype으로 문자열 컬럼을 판별하면 안 된다.
+      pandas 3.x의 기본 문자열 dtype('str')과 'string'/'category'는
+      `dtype == object`가 False라서 통째로 건너뛰어진다
+      (로컬 pandas 2.x에서는 통과하고 배포에서만 터지는 원인).
+      숫자·날짜형만 제외하고 나머지는 값 단위로 검사한다.
     """
     out = df.copy()
+    # 컬럼명도 워크시트 셀로 쓰이므로 동일하게 정리
+    out.columns = [_XLSX_ILLEGAL.sub(' ', str(c)) for c in out.columns]
     for col in out.columns:
-        if out[col].dtype == object:
-            out[col] = out[col].map(
+        s = out[col]
+        try:
+            if pd.api.types.is_numeric_dtype(s) or pd.api.types.is_datetime64_any_dtype(s):
+                continue
+        except Exception:
+            pass
+        try:
+            out[col] = s.map(
                 lambda v: _XLSX_ILLEGAL.sub(' ', v) if isinstance(v, str) else v
             )
+        except Exception:
+            # 어떤 이유로든 변환 실패 시 문자열화해서라도 안전하게
+            out[col] = s.astype(str).map(lambda v: _XLSX_ILLEGAL.sub(' ', v))
     return out
 
 
@@ -221,10 +238,18 @@ def _build_download_cache(df: pd.DataFrame):
         return  # 이미 캐시됨 — 스킵
     st.session_state['_dl_sig'] = sig
     st.session_state['_csv'] = df.to_csv(index=False).encode('utf-8-sig')
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-        _sanitize_for_excel(df).to_excel(writer, index=False, sheet_name='분석데이터')
-    st.session_state['_xlsx'] = buf.getvalue()
+    # 엑셀 변환 실패가 앱 전체를 중단시키지 않도록 격리.
+    # (다운로드 버튼만 비활성화되고 대시보드는 정상 동작)
+    st.session_state.pop('_xlsx', None)
+    st.session_state.pop('_xlsx_error', None)
+    try:
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+            _sanitize_for_excel(df).to_excel(writer, index=False, sheet_name='분석데이터')
+        st.session_state['_xlsx'] = buf.getvalue()
+    except Exception as e:
+        st.session_state['_xlsx_error'] = f'{type(e).__name__}: {e}'
+        _log.warning("Excel 생성 실패 — CSV로 대체 안내: %s", e)
     st.session_state.pop('_pptx', None)  # 데이터 변경 → PPTX 무효화
     st.session_state.pop('_pdf', None)   # 데이터 변경 → PDF 무효화
 
@@ -709,13 +734,18 @@ def _render_download_buttons(df: pd.DataFrame, company_name: str, client_id: str
             mime="text/csv",
         )
 
-        # Excel (캐시)
-        st.download_button(
-            "📥 Excel 다운로드",
-            data=st.session_state['_xlsx'],
-            file_name=f"lms_report_{datetime.now():%Y%m%d}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        # Excel (캐시) — 생성 실패 시 CSV 안내로 대체
+        if st.session_state.get('_xlsx'):
+            st.download_button(
+                "📥 Excel 다운로드",
+                data=st.session_state['_xlsx'],
+                file_name=f"lms_report_{datetime.now():%Y%m%d}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        else:
+            st.button("📥 Excel 다운로드", disabled=True, help="엑셀 변환 불가 — CSV를 이용해 주세요")
+            if st.session_state.get('_xlsx_error'):
+                st.caption(f"⚠ {st.session_state['_xlsx_error'][:80]}")
 
         # PPTX — 클릭 시에만 생성 (kaleido 렌더링이 무거우므로)
         if '_pptx' not in st.session_state:
