@@ -24,7 +24,7 @@ from modules.config import (
     COLOR_TEXT, COLOR_TEXT_SEC, COLOR_TEXT_TER, COLOR_BORDER, COLOR_BORDER_SUBTLE,
     COLOR_CARD, COLOR_BG, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING, COLOR_BLUE,
     BRAND_PRIMARY, compact_num, MIN_SENDS_FOR_CTR_CLAIM,
-    GOOD_CPA, REF_DB_FOR_CPA,
+    GOOD_CPA, REF_DB_FOR_CPA, PROMO_ONLY_REFERENCES,
 )
 from modules.ui_helpers import render_page_header, render_empty_state, esc_html_safe
 from modules.data_processing import is_db_driven as _shared_is_db_driven
@@ -56,6 +56,62 @@ _CPA_POOR_MULT = 2.0
 #   (실사례: 온리원 ASUM 패키지 단가 1원 → 예상 CPA 2,667원으로 1순위 추천됨.
 #            교육 LMS 실단가는 5퍼센타일이 90원, 중앙값 100원)
 _MIN_UNIT_PRICE = 10.0
+
+# 실측 CPA로 믿을 최소선(원). 이보다 낮으면 광고비가 비어 있는 행으로 본다.
+# (교육 성과형 최저 단가가 25,300원 — 1만원 미만 CPA는 데이터 공백이다)
+_MIN_CREDIBLE_CPA = 10_000.0
+
+# 광고상품을 실제로 사는 단위 4개로 묶는다. 데이터에는 LMS·MMS·실시간 발송처럼
+# 같은 채널이 다른 이름으로 들어와 있어서, 그대로 두면 매체×상품 전환율이
+# 쪼개져 표본이 1건씩 흩어진다.
+#   LMS   — 문자(LMS/MMS/실시간 발송)
+#   카플친 — 카카오 플러스친구 메시지
+#   앱푸시 — 매체 앱 푸시
+#   DA    — 디스플레이 배너
+#   성과형 — DB 건당 과금(CPA·CPS·퍼미션콜). 채널이 아니라 과금 방식이라
+#            4개로 묶을 수 없다. 물량·단가 의미가 달라 따로 다룬다.
+_PRODUCT_GROUPS = {
+    'LMS': 'LMS', 'MMS': 'LMS', '실시간발송': 'LMS', 'SMS': 'LMS',
+    '카톡MSG': '카플친', '카카오MSG': '카플친', '플친': '카플친',
+    '카카오플러스친구': '카플친', '카톡': '카플친',
+    'PUSH': '앱푸시', '앱푸시': '앱푸시', '푸시': '앱푸시',
+    'DA': 'DA', 'IPTV': 'DA', '배너': 'DA',
+    'CPA': '성과형', 'CPS': '성과형', '퍼미션콜': '성과형',
+}
+_PRODUCT_PERF = '성과형'
+
+
+def _promo_reason(media: str, brand: str = '') -> str:
+    """프로모션 단가로 집행해 레퍼런스로 쓸 수 없는 매체면 사유를 돌려준다."""
+    m = str(media or '').strip()
+    if brand and f'{brand}|{m}' in PROMO_ONLY_REFERENCES:
+        return PROMO_ONLY_REFERENCES[f'{brand}|{m}']
+    return PROMO_ONLY_REFERENCES.get(m, '')
+
+
+def _drop_promo(df: pd.DataFrame) -> pd.DataFrame:
+    """프로모션 집행 행을 레퍼런스 모집단에서 제거."""
+    if df is None or df.empty or '매체' not in df.columns:
+        return df
+    keys = set(PROMO_ONLY_REFERENCES)
+    plain = {k for k in keys if '|' not in k}
+    mask = ~df['매체'].astype(str).str.strip().isin(plain)
+    if '_브랜드' in df.columns:
+        pairs = {k for k in keys if '|' in k}
+        if pairs:
+            bm = (df['_브랜드'].astype(str).str.strip() + '|'
+                  + df['매체'].astype(str).str.strip())
+            mask &= ~bm.isin(pairs)
+    return df[mask]
+
+
+def _product_label(raw) -> str:
+    """원본 광고상품명 → 구매 단위 라벨. 모르는 값은 원문을 그대로 쓴다."""
+    s = str(raw or '').strip()
+    if not s:
+        return 'LMS'
+    return _PRODUCT_GROUPS.get(s.upper().replace(' ', ''), s)
+
 
 # 자녀 연령 스테이지 매칭과 고정 CPA 기준(500만원/30건)은 **교육 업종 전용**이다.
 # 보험·수송 등은 KPI 정의와 전환 단가 수준이 완전히 달라 같은 기준을 쓰면 안 된다.
@@ -188,7 +244,8 @@ def _db_rate_table(df: pd.DataFrame) -> dict:
     if d.empty:
         return out
     d['_snd'] = pd.to_numeric(d.get('발송건'), errors='coerce').fillna(0)
-    msg = d[~d['광고상품'].astype(str).str.upper().isin(['DA', 'CPA'])]
+    d['_prod'] = d['광고상품'].apply(_product_label)
+    msg = d[~d['_prod'].isin(['DA', _PRODUCT_PERF])]
     msg = msg[msg['_snd'] > 0]
     if not msg.empty:
         for media, g in msg.groupby('매체'):
@@ -199,7 +256,7 @@ def _db_rate_table(df: pd.DataFrame) -> dict:
                 'rate': float(g['_db'].sum()) / snd * 10000,
                 'n': len(g), 'db': float(g['_db'].sum()),
             }
-        for (media, prod), g in msg.groupby(['매체', '광고상품']):
+        for (media, prod), g in msg.groupby(['매체', '_prod']):
             snd = float(g['_snd'].sum())
             if snd <= 0:
                 continue
@@ -207,7 +264,7 @@ def _db_rate_table(df: pd.DataFrame) -> dict:
                 'rate': float(g['_db'].sum()) / snd * 10000,
                 'n': len(g), 'db': float(g['_db'].sum()),
             }
-        for prod, g in msg.groupby('광고상품'):
+        for prod, g in msg.groupby('_prod'):
             snd = float(g['_snd'].sum())
             if snd > 0:
                 out['product'][str(prod)] = float(g['_db'].sum()) / snd * 10000
@@ -276,20 +333,29 @@ def _db_perf(rows: pd.DataFrame, *, good_cpa: float = GOOD_CPA) -> dict | None:
     #   실사례: 온리원 SKT비즈챗 705,882원 → 집계분만 352,941원,
     #           아이스크림홈런 롯데카드 384,615원 → 128,205원(양호).
     #   DB 0건으로 '보고된' 행은 실제 실패이므로 그대로 포함한다.
-    rep = rows[pd.to_numeric(rows['DB'], errors='coerce').notna()]
+    _prod = rows['광고상품'].apply(_product_label)
+    rep = rows[(_prod != 'DA') & pd.to_numeric(rows['DB'], errors='coerce').notna()]
     if rep.empty:
         return None
     db = pd.to_numeric(rep['DB'], errors='coerce').fillna(0).sum()
     if db < _MIN_DB_FOR_JUDGE:
         return None
-    cost = pd.to_numeric(rep['광고비'], errors='coerce').fillna(0).sum()
+    # DA(배너)는 원래 DB가 찍히지 않는 상품이라 '미집계'가 아니라
+    # 같은 매체를 사면서 함께 낸 **패키지 비용**이다. 분모에 포함해야
+    # 광고주가 체감하는 CPA와 같아진다.
+    #   (실사례: 온리원 KB페이 = LMS 500만 + DA 배너 200만 패키지, DB 17건.
+    #            LMS만 세면 294,118원이지만 실제로는 411,765원 — 광고주는
+    #            "매우 안 좋았다"고 평가했다. 타겟 원문에도 "KB Pay + LMS
+    #            배너 패키지"로 적혀 있다)
+    pkg = pd.to_numeric(rows[_prod == 'DA']['광고비'], errors='coerce').fillna(0).sum()
+    cost = pd.to_numeric(rep['광고비'], errors='coerce').fillna(0).sum() + float(pkg)
     if cost <= 0:
         return None
     rows = rep
     cpa = float(cost) / float(db)
     if cpa <= good_cpa:
         grade, color = '양호', COLOR_SUCCESS
-    elif cpa <= good_cpa * 2:
+    elif cpa <= good_cpa * _CPA_POOR_MULT:
         grade, color = '보통', COLOR_WARNING
     else:
         grade, color = '부진', COLOR_DANGER
@@ -420,8 +486,49 @@ def build_recommendations(
 
     # 예상 DB 산출용 전환율 테이블 — 자사 우선, 타사는 DB 수신 브랜드만
     _empty_tbl = {'media': {}, 'media_prod': {}, 'product': {}, 'overall': None}
-    my_tbl = _db_rate_table(me) if db_driven else _empty_tbl
-    ref_tbl = _db_rate_table(others_db) if db_driven else _empty_tbl
+    my_tbl = _db_rate_table(_drop_promo(me)) if db_driven else _empty_tbl
+    ref_tbl = _db_rate_table(_drop_promo(others_db)) if db_driven else _empty_tbl
+    # 실측 CPA 비교용 타사 이력 — 학령·기간 필터 없이 넓게 본다.
+    #   '이 매체가 실제로 나빴나'를 거르는 용도라 증거를 최대한 모은다.
+    #   학령 필터를 그대로 걸면 패키지 배너 행(타겟 문구에 학령 신호가 없어
+    #   '미상'으로 빠짐)이 떨어져 나가 비용이 과소집계된다.
+    ind_db_rows = full.iloc[0:0]
+    if db_driven and db_brands:
+        ind_db_rows = full[(full['분야'] == industry)
+                           & (full['_브랜드'].astype(str).isin(db_brands))]
+
+    def _measured_cpa(media: str, product: str) -> tuple[dict | None, str]:
+        """그 매체에서 실제로 나온 CPA (자사 전체 기간 → DB 수신 타사).
+
+        추정치가 아무리 좋게 나와도 **실측이 부진했던 매체는 제안하지 않는다.**
+        전환율(발송 1만건당 DB)만 보면 패키지로 함께 낸 배너 비용이나
+        매체 전체 지출이 빠져서 실제보다 좋게 보일 수 있다.
+          (실사례: 온리원 KB페이 — 전환율로는 294,118원이지만 DA 배너
+                   200만원을 합치면 411,765원. 광고주 평가는 "매우 안 좋았다")
+        """
+        if not db_driven:
+            return None, ''
+        # 타사 쪽은 학령·기간 필터를 걸지 않은 전체 이력을 본다.
+        #   이 값은 '이 매체가 실제로 나빴나'를 거르는 용도라 증거를 넓게 모은다.
+        #   학령 필터를 그대로 걸면 패키지 배너 행(타겟 문구에 학령 신호가 없어
+        #   '미상'으로 빠짐)이 떨어져 나가 비용이 과소집계된다.
+        #   (실사례: 온리원 KB페이 DA 200만원이 빠져 294,118원으로 보였고,
+        #            그 값으로 밀크T·엘리하이에 KB페이가 다시 추천됐다)
+        for src, label in ((me, '자사'), (ind_db_rows, '타사')):
+            rows = src[src['매체'].astype(str) == media]
+            if rows.empty:
+                continue
+            # 제안할 상품과 같은 상품만 본다 (+ 함께 낸 DA 배너 비용).
+            # 성과형 CPA 행과 메시징 행이 섞이면 전혀 다른 단가가 합쳐진다.
+            _pl = rows['광고상품'].apply(_product_label)
+            rows = rows[_pl.isin([product, 'DA'])]
+            p = _db_perf(rows, good_cpa=good_cpa)
+            # 단가 미입력·패키지 정산으로 광고비가 비어 있으면 CPA가
+            # 비현실적으로 낮게 찍힌다. 실측으로 믿지 않는다.
+            #   (온리원 ASUM 패키지: 단가 1원으로 기록돼 실측 CPA 2,667원)
+            if p is not None and p['cpa'] >= _MIN_CREDIBLE_CPA:
+                return p, label
+        return None, ''
 
     def _ref_table(q: pd.DataFrame) -> pd.DataFrame:
         """동종업계 매체별 CTR·단가 집계. 레퍼런스가 비면 빈 테이블."""
@@ -461,8 +568,14 @@ def build_recommendations(
             rows = rows[rows['_u'] >= _MIN_UNIT_PRICE]
             if rows.empty:
                 continue
-            prod = str(rows['광고상품'].astype(str).mode().iloc[0])
-            pr = rows[rows['광고상품'].astype(str) == prod].sort_values('_d')
+            rows['_prod'] = rows['광고상품'].apply(_product_label)
+            # 메시징 상품을 먼저 본다. CTR·전환 근거가 메시징 행에서 나오므로
+            # 같은 매체에 DA가 더 많다고 DA로 잡으면 근거와 어긋난다.
+            #   (실사례: 밀크T 도와줘 — CTR 2.12%는 카플친 실적인데
+            #            DA가 더 많아 DA로 제안되고 물량이 0으로 찍혔다)
+            _msg = rows[rows['_prod'] != 'DA']
+            prod = str((_msg if not _msg.empty else rows)['_prod'].mode().iloc[0])
+            pr = rows[rows['_prod'] == prod].sort_values('_d')
             unit = float(pr['_u'].iloc[-1]) if newest else float(pr['_u'].median())
             return prod, unit
         # 업종 전체 메시징 중앙 단가로 마지막 보정 (그마저 없으면 제안 제외)
@@ -666,32 +779,61 @@ def build_recommendations(
     for r in recs:
         if r['media'] in seen:
             continue
+        # 프로모션·특가로 집행했던 매체는 제안하지 않는다.
+        # 정상 단가로 다시 돌리면 같은 효율이 나오지 않는다 (운영팀 확인).
+        if _promo_reason(r['media'], brand):
+            continue
         # CTR·CPA 어느 쪽으로도 근거가 없으면 제안하지 않는다
         if float(r.get('ctr') or 0) <= 0 and not r.get('cpa'):
-            continue
-        # 신뢰할 단가가 없으면 예산·예상 CPA를 만들 수 없다 → 제안 제외
-        if float(r.get('unit') or 0) < _MIN_UNIT_PRICE:
             continue
         _prod, _ = _media_plan(r['media'])
         r['product'] = _prod
         # 성과형(CPA) 상품은 단가 자체가 DB 단가다. 발송 전환율을 적용하면
         # '물량 1만건 × 6만원 = 6억원' 같은 허수가 만들어진다.
         # 물량은 발송이 아니라 DB 건수로 제안한다. (기준과 같은 30건)
-        r['cpa_product'] = _prod.strip().upper() == 'CPA'
-        if r['cpa_product']:
-            r['qty'] = REF_DB_FOR_CPA
-        r['budget'] = int(r['qty'] * r['unit'])
+        r['cpa_product'] = _prod == _PRODUCT_PERF
+        if _prod == 'DA':
+            # DA는 발송 단가 과금이 아니라 노출·기간 단위 집행이다.
+            # 물량 × 단가로 예산을 만들면 실제 청구액과 무관한 값이 된다.
+            # 과거 집행 광고비 중앙값을 추천 예산으로 쓴다.
+            _da = ind_rows_all[
+                (ind_rows_all['매체'].astype(str) == r['media'])
+                & (ind_rows_all['광고상품'].apply(_product_label) == 'DA')
+            ]
+            _c = pd.to_numeric(_da['광고비'], errors='coerce')
+            _c = _c[_c > 0]
+            if _c.empty:
+                continue        # 실제 청구액을 모르면 제안하지 않는다
+            _imp = pd.to_numeric(_da['발송건'], errors='coerce').fillna(0)
+            _imp = _imp[_imp > 0]
+            r['budget'] = int(_c.median())
+            r['qty'] = int(_imp.median()) if len(_imp) else 0
+        else:
+            # 신뢰할 단가가 없으면 예산·예상 CPA를 만들 수 없다 → 제안 제외
+            if float(r.get('unit') or 0) < _MIN_UNIT_PRICE:
+                continue
+            if r['cpa_product']:
+                r['qty'] = REF_DB_FOR_CPA
+            r['budget'] = int(r['qty'] * r['unit'])
         r['exp_clicks'] = int(r['qty'] * r['ctr'] / 100)
 
         # ── DB 광고주: 매체별 실측이 있으면 DB·CPA, 없으면 CTR 기준 ──
         r['basis'] = 'CTR'
         if db_driven:
+            # 실측이 부진했던 매체는 추정치가 좋아도 제안하지 않는다
+            _hist, _hsrc = _measured_cpa(r['media'], _prod)
+            if _hist is not None:
+                if _hist['grade'] == '부진':
+                    continue
+                r['hist_cpa'] = _hist['cpa']
+                r['hist_src'] = (f'{_hsrc} {_prod} 실측 CPA {_hist["cpa"]:,.0f}원 '
+                                 f'({_hist["grade"]}) · DB {_hist["db"]:.0f}건')
             if r['cpa_product']:
                 # 성과형은 단가가 곧 DB 단가 — 추정이 아니라 계약 조건이다
                 r['basis'] = 'CPA'
                 r['exp_db'] = float(r['qty'])
                 r['exp_cpa'] = float(r['unit'])
-                r['exp_db_src'] = f'성과형(CPA) 단가 {float(r["unit"]):,.0f}원 — DB 건당 과금'
+                r['exp_db_src'] = f'성과형 단가 {float(r["unit"]):,.0f}원 — DB 건당 과금'
             else:
                 exp_db, db_src = _expect_db(r['media'], r['qty'],
                                             my_tbl=my_tbl, ref_tbl=ref_tbl, product=_prod)
@@ -737,6 +879,12 @@ def build_recommendations(
 # ──────────────────────────────────────────────
 # UI
 # ──────────────────────────────────────────────
+_PROD_COLOR = {
+    'LMS': COLOR_BLUE, '카플친': COLOR_WARNING,
+    '앱푸시': COLOR_SUCCESS, 'DA': BRAND_PRIMARY, '성과형': COLOR_DANGER,
+}
+
+
 def _rec_card(r: dict, rank: int) -> str:
     tone = r['tone']
     _gcpa = float(r.get('_meta', {}).get('good_cpa') or GOOD_CPA)
@@ -774,6 +922,10 @@ def _rec_card(r: dict, rank: int) -> str:
         f'padding:2px 8px;border-radius:999px;font-weight:700;">{r["type"]}</span>'
         f'      <span style="font-size:1rem;color:{COLOR_TEXT};font-weight:700;">'
         f'{esc_html_safe(r["media"])}</span>'
+        + (f'      <span style="font-size:0.62rem;color:{_PROD_COLOR.get(r["product"], COLOR_TEXT_SEC)};'
+           f'background:{COLOR_BG};border:1px solid {COLOR_BORDER};padding:2px 7px;'
+           f'border-radius:6px;font-weight:700;">{esc_html_safe(r["product"])}</span>'
+           if r.get('product') else '')
         + (f'      <span style="font-size:0.6rem;color:{COLOR_TEXT_SEC};'
            f'border:1px solid {COLOR_BORDER};padding:1px 6px;border-radius:999px;'
            f'font-weight:700;" title="이 매체는 전환(DB) 실측 레퍼런스가 없어 CTR로만 추정합니다">'
@@ -805,13 +957,15 @@ def _rec_card(r: dict, rank: int) -> str:
         f'  <div style="font-size:0.68rem;color:{COLOR_TEXT_TER};margin-top:2px;">'
         f'{esc_html_safe(r["evidence"])}'
         + (f' · 전환율 근거: {esc_html_safe(r["exp_db_src"])}' if r.get('exp_db_src') else '')
+        + (f' · {esc_html_safe(r["hist_src"])}' if r.get('hist_src') else '')
         + f'</div>'
         f'  {cpa_html}'
         # 제안 수치
         f'  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;'
         f'margin-top:10px;padding-top:10px;border-top:1px dashed {COLOR_BORDER_SUBTLE};">'
         f'    <div><div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};font-weight:600;">'
-        + ('추천 DB 물량' if r.get('cpa_product') else '추천 물량') + '</div>'
+        + ('추천 DB 물량' if r.get('cpa_product')
+           else '예상 노출' if r.get('product') == 'DA' else '추천 물량') + '</div>'
         f'<div style="font-size:0.85rem;color:{COLOR_TEXT};font-weight:700;">{r["qty"]:,}건</div></div>'
         f'    <div><div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};font-weight:600;">추천 예산</div>'
         f'<div style="font-size:0.85rem;color:{COLOR_TEXT};font-weight:700;">{compact_num(r["budget"], "원")}</div></div>'
@@ -943,6 +1097,9 @@ def render(df: pd.DataFrame):
             f'광고주의 레퍼런스뿐인 경우). DB 추정치를 만들지 않고 목록 아래에 배치'
             + (f' — 현재 {n_ctr}개' if n_ctr else '')
             + base_txt
+            + (f'<br>프로모션·특가로 집행했던 매체는 제안·레퍼런스에서 제외합니다 '
+               f'— {", ".join(sorted(k.split("|")[-1] for k in PROMO_ONLY_REFERENCES))}'
+               if PROMO_ONLY_REFERENCES else '')
         )
     else:
         criteria = (
@@ -1015,14 +1172,17 @@ def render(df: pd.DataFrame):
     lines.append('')
     for r in view:
         lines.append(f'[{r["type"]}] {r["media"]}'
+                     + (f' / {r["product"]}' if r.get('product') else '')
                      + (f' — {r["exp_grade"]}' if r.get('exp_grade') else '')
                      + (' (CTR 기준 — 전환 실측 없음)' if r.get('ctr_only') else ''))
         if r.get('exp_db'):
-            _ql = 'DB 물량' if r.get('cpa_product') else '물량'
+            _ql = ('DB 물량' if r.get('cpa_product')
+                   else '예상 노출' if r.get('product') == 'DA' else '물량')
             lines.append(f'  - {_ql} {r["qty"]:,}건 / 예산 {r["budget"]:,}원 / '
                          f'예상 DB {float(r["exp_db"]):.0f}건 / 예상 CPA {float(r["exp_cpa"]):,.0f}원')
             if r.get('exp_db_src'):
-                lines.append(f'    (전환율 근거: {r["exp_db_src"]})')
+                lines.append(f'    (전환율 근거: {r["exp_db_src"]}'
+                             + (f' · {r["hist_src"]}' if r.get('hist_src') else '') + ')')
         else:
             lines.append(f'  - 물량 {r["qty"]:,}건 / 예산 {r["budget"]:,}원 / '
                          f'예상 CTR {r["ctr"]:.2f}% (예상 클릭 {r["exp_clicks"]:,}회)')
