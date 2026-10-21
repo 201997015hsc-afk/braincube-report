@@ -105,6 +105,18 @@ _PRODUCT_GROUPS = {
 _PRODUCT_PERF = '성과형'
 
 
+def _asof_date() -> pd.Timestamp:
+    """분석 기준일 = 한국 시간 기준 **어제** 00:00.
+
+    아직 발송하지 않은 예약 캠페인(데이터에 미래 일자로 들어있다)을
+    성과 집계에 넣으면 의미가 없다. 오늘 집행분도 클릭·DB가 아직
+    안 들어와 CTR·CPA를 왜곡하므로 어제까지만 본다.
+    배포 서버가 UTC라 KST(+9)로 직접 보정한다.
+    """
+    return (pd.Timestamp.utcnow().tz_localize(None)
+            + pd.Timedelta(hours=9)).normalize() - pd.Timedelta(days=1)
+
+
 def _media_key(name) -> str:
     """같은 매체의 표기 변형을 하나로 묶는 키.
 
@@ -470,9 +482,13 @@ def build_recommendations(
     full = _full.copy()
     full['_d'] = pd.to_datetime(full['_date'], errors='coerce')
     full = full.dropna(subset=['_d'])
+    # 분석 기준일(어제) 이후 — 아직 집행하지 않았거나 결과가 집계되지 않은
+    # 캠페인은 성과 분석에서 뺀다. 모든 기간 창도 이 날짜를 기준으로 센다.
+    asof = _asof_date()
+    full = full[full['_d'] < asof + pd.Timedelta(days=1)]
     if full.empty:
         return []
-    latest = full['_d'].max()
+    latest = asof
     # 같은 매체의 표기 변형(BC카드 / BC카드 CNCAD)을 하나로 묶는다.
     #   이후 모든 매체 단위 집계·중복 판정은 _mk 로 한다.
     full['_mk'] = full['매체'].apply(_media_key)
@@ -696,6 +712,11 @@ def build_recommendations(
     if not _recent6.empty:
         _ms = _recent6.groupby(_recent6['_d'].dt.to_period('M'))['광고비'].apply(
             lambda x: float(pd.to_numeric(x, errors='coerce').fillna(0).sum()))
+        # 진행 중인 달은 아직 다 집행하지 않았으므로 월 집행액으로 쓰지 않는다.
+        # (10월 20일에 보면 10월은 2/3만 집행된 상태라 중앙값을 끌어내린다)
+        _cur = latest.to_period('M')
+        if latest.date() != _cur.end_time.date():
+            _ms = _ms[_ms.index != _cur]
         _ms = _ms[_ms > 0]
         if len(_ms):
             monthly_budget = float(_ms.median())
@@ -956,6 +977,7 @@ def build_recommendations(
         'stage_filtered': stage_filtered, 'good_cpa': good_cpa,
         'db_driven': db_driven, 'my_cpa_base': my_cpa_base,
         'use_stage': use_stage, 'monthly_budget': monthly_budget,
+        'asof': asof,
         'dropped': dropped,
     }
 
@@ -1350,7 +1372,9 @@ def render(df: pd.DataFrame):
         budget_cap = int(_digits) if _digits else 0
     st.markdown(
         f'<div style="font-size:0.72rem;color:{COLOR_TEXT_TER};margin:-6px 0 6px;">'
-        f'{esc_html_safe(brand)} · {esc_html_safe(industry)} 업종 기준'
+        + (f'{meta["asof"]:%Y-%m-%d} 기준 (어제까지 집행분) · '
+           if meta.get('asof') is not None else '')
+        + f'{esc_html_safe(brand)} · {esc_html_safe(industry)} 업종 기준'
         + (f' · 최근 6개월 월 집행액 중앙값 {compact_num(auto_budget, "원")}'
            if auto_budget else '')
         + (f' · 입력 예산 <b>{budget_cap:,}원</b>({compact_num(budget_cap, "원")})'
