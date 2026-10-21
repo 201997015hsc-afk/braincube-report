@@ -360,8 +360,15 @@ def _db_perf(rows: pd.DataFrame, *, good_cpa: float = GOOD_CPA) -> dict | None:
     #   실사례: 온리원 SKT비즈챗 705,882원 → 집계분만 352,941원,
     #           아이스크림홈런 롯데카드 384,615원 → 128,205원(양호).
     #   DB 0건으로 '보고된' 행은 실제 실패이므로 그대로 포함한다.
+    # 광고비가 0원인 행은 아직 청구 전이거나 무상 집행이다. DB만 세고
+    # 비용을 안 세면 CPA가 실제보다 낮게 나온다 — 정상 단가로 다시 살 수
+    # 없는 조건이므로 양쪽에서 모두 뺀다.
+    #   (실사례: 키즈노트 — DB 23건/광고비 0원 행을 포함하면 194,805원,
+    #            제외하면 277,778원. 제안 통과 여부가 뒤집힌다)
     _prod = rows['광고상품'].apply(_product_label)
-    rep = rows[(_prod != 'DA') & pd.to_numeric(rows['DB'], errors='coerce').notna()]
+    rep = rows[(_prod != 'DA')
+               & pd.to_numeric(rows['DB'], errors='coerce').notna()
+               & (pd.to_numeric(rows['광고비'], errors='coerce').fillna(0) > 0)]
     if rep.empty:
         return None
     db = pd.to_numeric(rep['DB'], errors='coerce').fillna(0).sum()
@@ -531,6 +538,41 @@ def build_recommendations(
     _empty_tbl = {'media': {}, 'media_prod': {}, 'product': {}, 'overall': None}
     my_tbl = _db_rate_table(_drop_promo(me)) if db_driven else _empty_tbl
     ref_tbl = _db_rate_table(_drop_promo(ind_db_rows)) if db_driven else _empty_tbl
+
+    def _media_history(media: str, product: str, limit: int = 5) -> tuple[list[dict], str, int]:
+        """그 매체·상품의 집행 이력 — 날짜별 발송·CTR·DB·CPA.
+
+        추천 근거를 '전환율 3.4건/만' 같은 가공값이 아니라 실제 집행 건으로
+        보여주기 위한 것이다. 자사 이력이 있으면 자사만, 없으면 타사를 쓴다.
+        DB가 아직 집계되지 않은 건은 '—'로 남겨 구분한다.
+        """
+        peer = ind_db_rows if (db_driven and not ind_db_rows.empty) else others
+        for src, label in ((me, '자사'), (peer, '타사')):
+            if src is None or src.empty:
+                continue
+            sub = src[src['_mk'].astype(str) == media]
+            if sub.empty:
+                continue
+            sub = sub[sub['광고상품'].apply(_product_label) == product]
+            if sub.empty:
+                continue
+            sub = sub.sort_values('_d', ascending=False)
+            out_rows = []
+            for _, x in sub.head(limit).iterrows():
+                snd = float(pd.to_numeric(x.get('발송건'), errors='coerce') or 0)
+                clk = float(pd.to_numeric(x.get('클릭수'), errors='coerce') or 0)
+                cost = float(pd.to_numeric(x.get('광고비'), errors='coerce') or 0)
+                _db = pd.to_numeric(x.get('DB'), errors='coerce')
+                db = None if pd.isna(_db) else float(_db)
+                out_rows.append({
+                    'date': x['_d'], 'brand': str(x.get('_브랜드', '')),
+                    'send': snd, 'ctr': (clk / snd * 100) if snd > 0 else None,
+                    'db': db, 'cost': cost,
+                    'cpa': (cost / db) if (db and db > 0 and cost > 0) else None,
+                    'qty': float(pd.to_numeric(x.get('정산수량'), errors='coerce') or 0),
+                })
+            return out_rows, label, len(sub)
+        return [], '', 0
 
     def _measured_cpa(media: str, product: str) -> tuple[dict | None, str]:
         """그 매체에서 실제로 나온 CPA (자사 전체 기간 → DB 수신 타사).
@@ -885,6 +927,7 @@ def build_recommendations(
         _prod, _ = _media_plan(r['media'])
         r['product'] = _prod
         r['media_disp'] = _disp_name(r['media'])
+        r['history'], r['history_src'], r['history_n'] = _media_history(r['media'], _prod)
         # 추천 물량을 그 매체의 실제 집행 규모로 맞춘다 (증액은 자체 산출 유지)
         if not r.get('qty_fixed') and _prod != 'DA':
             r['qty'] = _plan_qty(r['media'], _prod)
@@ -997,6 +1040,57 @@ def build_recommendations(
 # ──────────────────────────────────────────────
 # UI
 # ──────────────────────────────────────────────
+def _history_html(r: dict) -> str:
+    """집행 이력 표 — 날짜별 발송·CTR·DB·CPA.
+
+    '전환율 3.4건/만' 같은 가공값만 보여주면 검증이 안 된다.
+    실제로 언제 얼마를 써서 DB가 몇 건 나왔는지 그대로 보여준다.
+    """
+    rows = r.get('history') or []
+    if not rows:
+        return ''
+    src = r.get('history_src') or ''
+    n = int(r.get('history_n') or len(rows))
+    show_brand = src == '타사'
+    head = (
+        f'<tr style="color:{COLOR_TEXT_SEC};font-size:0.6rem;">'
+        f'<th style="text-align:left;font-weight:600;padding:2px 6px 2px 0;">집행일</th>'
+        + (f'<th style="text-align:left;font-weight:600;padding:2px 6px;">광고주</th>'
+           if show_brand else '')
+        + f'<th style="text-align:right;font-weight:600;padding:2px 6px;">발송</th>'
+        f'<th style="text-align:right;font-weight:600;padding:2px 6px;">CTR</th>'
+        f'<th style="text-align:right;font-weight:600;padding:2px 6px;">DB</th>'
+        f'<th style="text-align:right;font-weight:600;padding:2px 0 2px 6px;">CPA</th></tr>'
+    )
+    body = ''
+    for h in rows:
+        _snd = (f'{h["send"]:,.0f}건' if h['send'] else
+                (f'{h["qty"]:,.0f}건' if h.get('qty') else '—'))
+        _ctr = f'{h["ctr"]:.2f}%' if h['ctr'] is not None else '—'
+        _db = f'{h["db"]:,.0f}건' if h['db'] is not None else '미집계'
+        _cpa = f'{h["cpa"]:,.0f}원' if h['cpa'] else '—'
+        _c = COLOR_TEXT if h['cpa'] else COLOR_TEXT_TER
+        body += (
+            f'<tr style="font-size:0.66rem;color:{COLOR_TEXT_SEC};">'
+            f'<td style="padding:2px 6px 2px 0;white-space:nowrap;">{h["date"]:%y.%m.%d}</td>'
+            + (f'<td style="padding:2px 6px;">{esc_html_safe(h["brand"])}</td>'
+               if show_brand else '')
+            + f'<td style="text-align:right;padding:2px 6px;">{_snd}</td>'
+            f'<td style="text-align:right;padding:2px 6px;">{_ctr}</td>'
+            f'<td style="text-align:right;padding:2px 6px;">{_db}</td>'
+            f'<td style="text-align:right;padding:2px 0 2px 6px;color:{_c};'
+            f'font-weight:600;">{_cpa}</td></tr>'
+        )
+    more = f' · 외 {n - len(rows)}건' if n > len(rows) else ''
+    return (
+        f'<div style="margin-top:10px;padding-top:8px;'
+        f'border-top:1px dashed {COLOR_BORDER_SUBTLE};">'
+        f'<div style="font-size:0.6rem;color:{COLOR_TEXT_SEC};font-weight:600;'
+        f'margin-bottom:3px;">집행 이력 ({src} · 최근 {len(rows)}건{more})</div>'
+        f'<table style="width:100%;border-collapse:collapse;">{head}{body}</table></div>'
+    )
+
+
 _PROD_COLOR = {
     'LMS': COLOR_BLUE, '카플친': COLOR_WARNING,
     '앱푸시': COLOR_SUCCESS, 'DA': BRAND_PRIMARY, '성과형': COLOR_DANGER,
@@ -1101,6 +1195,7 @@ def _rec_card(r: dict, rank: int) -> str:
         )
         +
         f'  </div>'
+        f'  {_history_html(r)}'
         f'  {target_html}'
         f'</div>'
     )
@@ -1318,6 +1413,9 @@ def render(df: pd.DataFrame):
                 '예상 성과': _perf_txt(r),
                 '등급': r.get('exp_grade') or ('CTR 기준' if r.get('ctr_only') else '—'),
                 '비고': '추가 후보' if r.get('overflow') else '',
+                '최근 집행': (f'{r["history"][0]["date"]:%y.%m.%d}'
+                           + (f' ({r.get("history_src")})' if r.get('history_src') else '')
+                           if r.get('history') else '—'),
                 '근거': r.get('exp_db_src') or r.get('ctr_src', ''),
             } for r in view]),
             hide_index=True, use_container_width=True,
@@ -1396,6 +1494,15 @@ def render(df: pd.DataFrame):
             lines.append(f'  - 물량 {r["qty"]:,}건 / 예산 {r["budget"]:,}원 / '
                          f'예상 CTR {r["ctr"]:.2f}% (예상 클릭 {r["exp_clicks"]:,}회)')
         lines.append(f'  - 근거: {r["why"]} ({r["evidence"]})')
+        for h in (r.get('history') or []):
+            _b = f'{h["brand"]} ' if r.get('history_src') == '타사' else ''
+            _s = f'{h["send"]:,.0f}건' if h['send'] else (
+                f'{h["qty"]:,.0f}건' if h.get('qty') else '-')
+            _c = f'CTR {h["ctr"]:.2f}%' if h['ctr'] is not None else 'CTR -'
+            _d = f'DB {h["db"]:,.0f}건' if h['db'] is not None else 'DB 미집계'
+            _p = f'CPA {h["cpa"]:,.0f}원' if h['cpa'] else 'CPA -'
+            lines.append(f'    · {h["date"]:%Y-%m-%d} {_b}{_s} / {_c} / {_d} / {_p} '
+                         f'/ 광고비 {h["cost"]:,.0f}원')
         if r.get('target_raw'):
             tg = re.sub(r'\s*\n\s*', ' / ', str(r['target_raw']).strip())
             lines.append(f'  - 추천 타겟: {tg[:150]}')
