@@ -25,6 +25,7 @@ from modules.config import (
     COLOR_CARD, COLOR_BG, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING, COLOR_BLUE,
     BRAND_PRIMARY, compact_num, MIN_SENDS_FOR_CTR_CLAIM,
     GOOD_CPA, REF_DB_FOR_CPA, PROMO_ONLY_REFERENCES,
+    CPA_PROPOSE_MULT, PRODUCT_DEFAULT_QTY, MEDIA_VARIANT_SUFFIXES,
 )
 from modules.ui_helpers import render_page_header, render_empty_state, esc_html_safe
 from modules.data_processing import is_db_driven as _shared_is_db_driven
@@ -46,10 +47,10 @@ _DB_DRIVEN_MIN_RATIO = 0.20     # 전체 캠페인 대비 비율
 
 # 예상 CPA 등급은 **업종 공통 기준 하나로** 전 브랜드에 동일 적용한다.
 #   교육 = "500만원에 DB 30건" → 166,667원.
-#   기준 이하 = 양호 / 2배 이내 = 보통 / 2배 초과 = 부진(제안 제외).
+#   기준 이하 = 양호 / 1.5배 이내 = 보통 / 초과 = 부진(제안 제외).
 #   브랜드별 자사 평균을 기준선으로 쓰면 CPA가 비싼 브랜드는 비싼 매체가
 #   그대로 통과해 '잘 나왔다'의 정의가 브랜드마다 달라진다.
-_CPA_POOR_MULT = 2.0
+_CPA_POOR_MULT = CPA_PROPOSE_MULT
 
 # 메시징 최소 유효 단가(원). 이보다 낮으면 단가 미입력·패키지 정산 등
 # 데이터 공백으로 보고 예산·CPA 산출에 쓰지 않는다.
@@ -60,6 +61,15 @@ _MIN_UNIT_PRICE = 10.0
 # 실측 CPA로 믿을 최소선(원). 이보다 낮으면 광고비가 비어 있는 행으로 본다.
 # (교육 성과형 최저 단가가 25,300원 — 1만원 미만 CPA는 데이터 공백이다)
 _MIN_CREDIBLE_CPA = 10_000.0
+
+# 유형별 제안 상한. 한 유형이 목록을 다 차지하면 믹스가 아니다.
+#   (휴면 복귀만 9개 나오던 상태 → 실제로 돌릴 수 있는 조합이 아니다)
+_TYPE_CAP = {'📈 증액': 4, '🔁 휴면 복귀': 4, '🆕 신규 진입': 5, '✨ 신규 매체': 2}
+
+# 제안 총액을 최근 월 집행액의 이 배수 안으로 맞춘다. 넘는 제안은
+# '추가 후보'로 내린다. 월 879만원을 쓰는 광고주에게 4,300만원짜리
+# 믹스를 내밀면 제안서로 쓸 수 없다.
+_BUDGET_FIT_MULT = 1.1
 
 # 광고상품을 실제로 사는 단위 4개로 묶는다. 데이터에는 LMS·MMS·실시간 발송처럼
 # 같은 채널이 다른 이름으로 들어와 있어서, 그대로 두면 매체×상품 전환율이
@@ -79,6 +89,20 @@ _PRODUCT_GROUPS = {
     'CPA': '성과형', 'CPS': '성과형', '퍼미션콜': '성과형',
 }
 _PRODUCT_PERF = '성과형'
+
+
+def _media_key(name) -> str:
+    """같은 매체의 표기 변형을 하나로 묶는 키.
+
+    'BC카드'와 'BC카드 CNCAD'는 같은 매체다(운영팀 확인). 따로 두면
+    레퍼런스 표본이 쪼개지고, 같은 매체가 두 번 제안된다.
+    """
+    s = str(name or '').strip()
+    low = s.upper()
+    for suf in MEDIA_VARIANT_SUFFIXES:
+        if low.endswith(suf.upper()):
+            return s[: -len(suf)].strip()
+    return s
 
 
 def _promo_reason(media: str, brand: str = '') -> str:
@@ -245,10 +269,12 @@ def _db_rate_table(df: pd.DataFrame) -> dict:
         return out
     d['_snd'] = pd.to_numeric(d.get('발송건'), errors='coerce').fillna(0)
     d['_prod'] = d['광고상품'].apply(_product_label)
+    if '_mk' not in d.columns:
+        d['_mk'] = d['매체'].apply(_media_key)
     msg = d[~d['_prod'].isin(['DA', _PRODUCT_PERF])]
     msg = msg[msg['_snd'] > 0]
     if not msg.empty:
-        for media, g in msg.groupby('매체'):
+        for media, g in msg.groupby('_mk'):
             snd = float(g['_snd'].sum())
             if snd <= 0:
                 continue
@@ -256,7 +282,7 @@ def _db_rate_table(df: pd.DataFrame) -> dict:
                 'rate': float(g['_db'].sum()) / snd * 10000,
                 'n': len(g), 'db': float(g['_db'].sum()),
             }
-        for (media, prod), g in msg.groupby(['매체', '_prod']):
+        for (media, prod), g in msg.groupby(['_mk', '_prod']):
             snd = float(g['_snd'].sum())
             if snd <= 0:
                 continue
@@ -275,7 +301,7 @@ def _db_rate_table(df: pd.DataFrame) -> dict:
 
 
 def _expect_db(media: str, qty: int, *, my_tbl: dict, ref_tbl: dict,
-               product: str = 'LMS') -> tuple[float | None, str]:
+               product: str = 'LMS', label: str = '') -> tuple[float | None, str]:
     """추천 물량에 대한 예상 DB 인입수와 그 근거. **실측만 사용한다.**
 
     우선순위 (제안할 상품과 같은 상품의 실적):
@@ -291,18 +317,19 @@ def _expect_db(media: str, qty: int, *, my_tbl: dict, ref_tbl: dict,
     실측이 없으면 None을 돌려주고, 호출부는 그 매체를 CTR 기준으로 제안한다.
     근거에 표본 수를 함께 적어 신뢰도를 판단할 수 있게 한다.
     """
+    name = label or media
     mp = my_tbl.get('media_prod', {}).get((media, product))
     if mp and mp['n'] >= 1:
-        return qty * mp['rate'] / 10000, f'자사 {media} {product} 실적 {mp["n"]}건'
+        return qty * mp['rate'] / 10000, f'자사 {name} {product} 실적 {mp["n"]}건'
     rp = ref_tbl.get('media_prod', {}).get((media, product))
     if rp and rp['n'] >= 1:
-        return qty * rp['rate'] / 10000, f'동종업계 {media} {product} {rp["n"]}건'
+        return qty * rp['rate'] / 10000, f'동종업계 {name} {product} {rp["n"]}건'
     m = my_tbl.get('media', {}).get(media)
     if m and m['n'] >= 1:
-        return qty * m['rate'] / 10000, f'자사 {media} 실적 {m["n"]}건'
+        return qty * m['rate'] / 10000, f'자사 {name} 실적 {m["n"]}건'
     r = ref_tbl.get('media', {}).get(media)
     if r and r['n'] >= 1:
-        return qty * r['rate'] / 10000, f'동종업계 {media} {r["n"]}건'
+        return qty * r['rate'] / 10000, f'동종업계 {name} {r["n"]}건'
     return None, ''
 
 
@@ -376,7 +403,8 @@ def _best_target_for(df: pd.DataFrame, media: str) -> tuple[str, str]:
     """해당 매체에서 가장 성과 좋았던 캠페인의 타겟 (요약, 원문)."""
     if df.empty or '타겟' not in df.columns:
         return '', ''
-    sub = df[df['매체'].astype(str) == media].copy()
+    col = '_mk' if '_mk' in df.columns else '매체'
+    sub = df[df[col].astype(str) == media].copy()
     sub = sub[sub['타겟'].notna() & (sub['타겟'].astype(str).str.strip() != '')]
     sub = sub[pd.to_numeric(sub['발송건'], errors='coerce').fillna(0) >= MIN_SENDS_FOR_CTR_CLAIM]
     if sub.empty:
@@ -411,6 +439,9 @@ def build_recommendations(
     if full.empty:
         return []
     latest = full['_d'].max()
+    # 같은 매체의 표기 변형(BC카드 / BC카드 CNCAD)을 하나로 묶는다.
+    #   이후 모든 매체 단위 집계·중복 판정은 _mk 로 한다.
+    full['_mk'] = full['매체'].apply(_media_key)
 
     # 자녀 연령 스테이지는 교육 업종에서만 의미가 있다
     use_stage = industry in _STAGE_INDUSTRIES
@@ -449,8 +480,8 @@ def build_recommendations(
         return q
 
     me_q = _qual(me)
-    my_media_all = set(me['매체'].dropna().astype(str))
-    recent_media = set(me[me['_d'] >= latest - pd.Timedelta(days=_DORMANT_DAYS)]['매체']
+    my_media_all = set(me['_mk'].dropna().astype(str))
+    recent_media = set(me[me['_d'] >= latest - pd.Timedelta(days=_DORMANT_DAYS)]['_mk']
                        .dropna().astype(str))
 
     # 동종업계 타사 (최근 180일)
@@ -484,18 +515,22 @@ def build_recommendations(
                      if _shared_is_db_driven(full[full['_브랜드'].astype(str) == b])}
         others_db = others[others['_브랜드'].astype(str).isin(db_brands)]
 
-    # 예상 DB 산출용 전환율 테이블 — 자사 우선, 타사는 DB 수신 브랜드만
-    _empty_tbl = {'media': {}, 'media_prod': {}, 'product': {}, 'overall': None}
-    my_tbl = _db_rate_table(_drop_promo(me)) if db_driven else _empty_tbl
-    ref_tbl = _db_rate_table(_drop_promo(others_db)) if db_driven else _empty_tbl
-    # 실측 CPA 비교용 타사 이력 — 학령·기간 필터 없이 넓게 본다.
-    #   '이 매체가 실제로 나빴나'를 거르는 용도라 증거를 최대한 모은다.
-    #   학령 필터를 그대로 걸면 패키지 배너 행(타겟 문구에 학령 신호가 없어
-    #   '미상'으로 빠짐)이 떨어져 나가 비용이 과소집계된다.
+    # 타사 레퍼런스 모집단 — DB를 전달받는 브랜드의 **전 기간** 실적.
+    #   기간·학령을 좁히면 표본이 2건씩으로 쪼개져, 같은 매체의 예상치와
+    #   실측치가 어긋난다. 어떤 매체를 볼지는 학령 필터로 이미 걸렀으므로
+    #   전환율·CPA는 그 매체의 전체 실적으로 계산하는 게 정확하다.
+    #     (실사례: 온리원 키즈노트 — 180일·초등 2건 기준으로는 예상 CPA
+    #      294,118원이라 제외됐지만, 아이스크림홈런 전 기간 실측은 681건에
+    #      175,184원이었다. 같은 매체를 두고 두 숫자가 엇갈렸다)
     ind_db_rows = full.iloc[0:0]
     if db_driven and db_brands:
         ind_db_rows = full[(full['분야'] == industry)
                            & (full['_브랜드'].astype(str).isin(db_brands))]
+
+    # 예상 DB 산출용 전환율 테이블 — 자사 우선, 타사는 DB 수신 브랜드만
+    _empty_tbl = {'media': {}, 'media_prod': {}, 'product': {}, 'overall': None}
+    my_tbl = _db_rate_table(_drop_promo(me)) if db_driven else _empty_tbl
+    ref_tbl = _db_rate_table(_drop_promo(ind_db_rows)) if db_driven else _empty_tbl
 
     def _measured_cpa(media: str, product: str) -> tuple[dict | None, str]:
         """그 매체에서 실제로 나온 CPA (자사 전체 기간 → DB 수신 타사).
@@ -515,7 +550,7 @@ def build_recommendations(
         #   (실사례: 온리원 KB페이 DA 200만원이 빠져 294,118원으로 보였고,
         #            그 값으로 밀크T·엘리하이에 KB페이가 다시 추천됐다)
         for src, label in ((me, '자사'), (ind_db_rows, '타사')):
-            rows = src[src['매체'].astype(str) == media]
+            rows = src[src['_mk'].astype(str) == media]
             if rows.empty:
                 continue
             # 제안할 상품과 같은 상품만 본다 (+ 함께 낸 DA 배너 비용).
@@ -532,11 +567,11 @@ def build_recommendations(
 
     def _ref_table(q: pd.DataFrame) -> pd.DataFrame:
         """동종업계 매체별 CTR·단가 집계. 레퍼런스가 비면 빈 테이블."""
-        cols = ['매체', '브랜드수', '캠페인수', '발송', '클릭', '단가', 'CTR']
+        cols = ['_mk', '브랜드수', '캠페인수', '발송', '클릭', '단가', 'CTR']
         if q.empty:
             return pd.DataFrame(columns=cols)
-        t = q.groupby('매체').agg(
-            브랜드수=('_브랜드', 'nunique'), 캠페인수=('매체', 'size'),
+        t = q.groupby('_mk').agg(
+            브랜드수=('_브랜드', 'nunique'), 캠페인수=('_mk', 'size'),
             발송=('발송건', 'sum'), 클릭=('클릭수', lambda x: x.fillna(0).sum()),
             단가=('실단가', 'median') if '실단가' in q.columns else ('단가', 'median'),
         ).reset_index()
@@ -545,10 +580,56 @@ def build_recommendations(
 
     others_q = _qual(others)
     ref = _ref_table(others_q)
-    ref_map = {r['매체']: r for _, r in ref.iterrows()}
+    ref_map = {r['_mk']: r for _, r in ref.iterrows()}
 
     _ucol = '실단가' if '실단가' in full.columns else '단가'
     ind_rows_all = full[full['분야'] == industry]
+
+    # 표기 변형을 합쳐 집계하므로, 화면에는 실제로 많이 쓰는 이름을 쓴다.
+    #   ('현대카드 CNCAD'를 '현대카드'로 줄여 보여주면 운영팀이 못 찾는다)
+    def _mode_name(g) -> str:
+        v = g['매체'].dropna().astype(str)
+        return str(v.mode().iloc[0]) if len(v) else ''
+
+    _disp = {str(k): _mode_name(g) for k, g in ind_rows_all.groupby('_mk')
+             if not g.empty}
+    # 자사가 실제로 쓰는 표기가 있으면 그것을 보여준다 (발주 시 혼동 방지)
+    _disp.update({str(k): _mode_name(g) for k, g in me.groupby('_mk')
+                  if not g.empty and _mode_name(g)})
+
+    def _disp_name(key) -> str:
+        return _disp.get(str(key), str(key))
+
+    def _plan_qty(media_key: str, product: str) -> int:
+        """추천 물량 — 그 매체에서 실제로 돌린 1회 물량을 따른다.
+
+        자사 매체×상품 중앙값 → 업종 매체×상품 중앙값 → 상품 기본값.
+        상품 기본값만 쓰면 실제 집행 규모와 어긋난다 (교육 실측:
+        LMS 5만건 / 카플친 5만건 / 앱푸시 16.7만건).
+        """
+        for src in (me, ind_rows_all):
+            if src.empty or '정산수량' not in src.columns:
+                continue
+            rows = src[(src['_mk'].astype(str) == media_key)
+                       & (src['광고상품'].apply(_product_label) == product)]
+            q = pd.to_numeric(rows['정산수량'], errors='coerce')
+            q = q[q > 0]
+            if len(q):
+                v = float(q.median())
+                if product == _PRODUCT_PERF:
+                    return int(max(round(v), 1))
+                return int(max(round(v / 1000) * 1000, 1000))
+        return int(PRODUCT_DEFAULT_QTY.get(product, _DEFAULT_QTY))
+
+    # 최근 6개월 월 집행액 중앙값 — 제안 총액을 현실 예산에 맞추는 기준
+    monthly_budget = 0.0
+    _recent6 = me[me['_d'] >= latest - pd.Timedelta(days=186)]
+    if not _recent6.empty:
+        _ms = _recent6.groupby(_recent6['_d'].dt.to_period('M'))['광고비'].apply(
+            lambda x: float(pd.to_numeric(x, errors='coerce').fillna(0).sum()))
+        _ms = _ms[_ms > 0]
+        if len(_ms):
+            monthly_budget = float(_ms.median())
 
     def _media_plan(media: str) -> tuple[str, float]:
         """이 매체를 제안할 때의 (주력 광고상품, 유효 단가).
@@ -561,7 +642,7 @@ def build_recommendations(
         그대로 쓰면 예산과 예상 CPA가 동시에 허수가 된다.
         """
         for src, newest in ((me, True), (others, False), (ind_rows_all, False)):
-            rows = src[src['매체'].astype(str) == media].copy()
+            rows = src[src['_mk'].astype(str) == media].copy()
             if rows.empty:
                 continue
             rows['_u'] = pd.to_numeric(rows[_ucol], errors='coerce')
@@ -591,11 +672,11 @@ def build_recommendations(
 
     # ── 🔁 휴면 복귀 ──
     for media in sorted(my_media_all - recent_media):
-        hist = me_q[me_q['매체'].astype(str) == media]
+        hist = me_q[me_q['_mk'].astype(str) == media]
         if hist.empty:
             continue
         my_ctr = _ctr(hist['클릭수'].fillna(0).sum(), hist['발송건'].sum())
-        last_d = me[me['매체'].astype(str) == media]['_d'].max()
+        last_d = me[me['_mk'].astype(str) == media]['_d'].max()
         days = int((latest - last_d).days)
         tgt_s, tgt_raw = _best_target_for(me, media)
         recs.append({
@@ -610,12 +691,12 @@ def build_recommendations(
 
     # ── 🆕 신규 진입 (동종업계 검증, 자사 미집행) ──
     for _, r in ref.iterrows():
-        media = str(r['매체'])
+        media = str(r['_mk'])
         if media in my_media_all or r['발송'] < MIN_SENDS_FOR_CTR_CLAIM:
             continue
         tgt_s, tgt_raw = _best_target_for(others, media)
         brands = sorted(set(
-            others_q[others_q['매체'].astype(str) == media]['_브랜드'].dropna().astype(str)
+            others_q[others_q['_mk'].astype(str) == media]['_브랜드'].dropna().astype(str)
         ))[:3]
         recs.append({
             'type': '🆕 신규 진입', 'tone': BRAND_PRIMARY, 'media': media,
@@ -632,8 +713,8 @@ def build_recommendations(
     # 자사 집행 이력이 없어도 **타사가 DB를 잘 뽑은 매체**는 추천한다.
     #   CTR만 보는 위 블록과 달리 전환 실측으로 고르므로 DB 광고주에게
     #   훨씬 actionable하다. CTR이 낮아도 DB가 나오는 매체가 실제로 있다.
-    for media in sorted(set(others_db['매체'].dropna().astype(str)) - my_media_all):
-        rows = others_db[others_db['매체'].astype(str) == media]
+    for media in sorted(set(others_db['_mk'].dropna().astype(str)) - my_media_all):
+        rows = others_db[others_db['_mk'].astype(str) == media]
         perf = _db_perf(rows, good_cpa=good_cpa)
         if perf is None or perf['grade'] == '부진':
             continue
@@ -675,9 +756,9 @@ def build_recommendations(
         base_ctr = _ctr(recent_q['클릭수'].fillna(0).sum(), recent_q['발송건'].sum()) \
             if not recent_q.empty else 0
         cands = []
-        for media in sorted(set(recent_all['매체'].dropna().astype(str))):
-            m_all = recent_all[recent_all['매체'].astype(str) == media]
-            m_q = recent_q[recent_q['매체'].astype(str) == media]
+        for media in sorted(set(recent_all['_mk'].dropna().astype(str))):
+            m_all = recent_all[recent_all['_mk'].astype(str) == media]
+            m_q = recent_q[recent_q['_mk'].astype(str) == media]
             # DB를 전달받는 광고주일 때만 CPA로 판정한다.
             # (미수신 광고주는 우연히 기록된 1~2건으로 CPA가 계산돼 왜곡된다 —
             #  예: 윙크 헬로100 DB 2건/4만원 → CPA 2만원으로 '양호' 오판)
@@ -740,18 +821,18 @@ def build_recommendations(
                 'qty': c['qty'], 'unit': _unit_price(c['media']),
                 'target': tgt_s, 'target_raw': tgt_raw,
                 'why': c['why'], 'score': c['score'], 'evidence': c['evidence'],
-                'cpa': c.get('cpa'), 'db': c.get('db'),
+                'cpa': c.get('cpa'), 'db': c.get('db'), 'qty_fixed': True,
             })
 
     # ── ✨ 업종 신규 매체 (최근 등장, 선점 기회) ──
     ind_all = full[full['분야'] == industry]
     cut = latest - pd.Timedelta(days=_NEW_MEDIA_DAYS)
-    newly = set(ind_all[ind_all['_d'] >= cut]['매체'].dropna().astype(str)) - \
-        set(ind_all[ind_all['_d'] < cut]['매체'].dropna().astype(str))
+    newly = set(ind_all[ind_all['_d'] >= cut]['_mk'].dropna().astype(str)) - \
+        set(ind_all[ind_all['_d'] < cut]['_mk'].dropna().astype(str))
     for media in sorted(newly):
         if media in my_media_all:
             continue
-        sub = others_q[others_q['매체'].astype(str) == media]
+        sub = others_q[others_q['_mk'].astype(str) == media]
         c = _ctr(sub['클릭수'].fillna(0).sum(), sub['발송건'].sum()) if not sub.empty else 0
         if c <= 0:
             continue  # 성과 레퍼런스가 전혀 없으면 추천 근거가 없다
@@ -769,25 +850,44 @@ def build_recommendations(
     # 중복 매체 제거 (점수 높은 제안 우선) + 상위 12개만
     # — 실제로 한 달에 돌릴 수 있는 규모로 추려야 제안서로 쓸 수 있다.
     recs.sort(key=lambda x: -x['score'])
+    seen, out = set(), []
+    dropped: list[dict] = []
+    type_n: dict[str, int] = {}
     _meta = {
         'my_stage': my_stage, 'my_dist': my_dist,
         'stage_filtered': stage_filtered, 'good_cpa': good_cpa,
         'db_driven': db_driven, 'my_cpa_base': my_cpa_base,
-        'use_stage': use_stage,
+        'use_stage': use_stage, 'monthly_budget': monthly_budget,
+        'dropped': dropped,
     }
-    seen, out = set(), []
+
+    def _drop(rec, reason: str, cpa=None):
+        dropped.append({'media': _disp_name(rec['media']), 'type': rec['type'],
+                        'product': rec.get('product', ''), 'reason': reason,
+                        'exp_cpa': cpa})
+
     for r in recs:
         if r['media'] in seen:
             continue
         # 프로모션·특가로 집행했던 매체는 제안하지 않는다.
         # 정상 단가로 다시 돌리면 같은 효율이 나오지 않는다 (운영팀 확인).
-        if _promo_reason(r['media'], brand):
+        _pr = _promo_reason(r['media'], brand)
+        if _pr:
+            seen.add(r['media'])
+            _drop(r, f'프로모션 집행 이력 — {_pr}')
+            continue
+        # 유형별 상한 (믹스 균형)
+        if type_n.get(r['type'], 0) >= _TYPE_CAP.get(r['type'], 4):
             continue
         # CTR·CPA 어느 쪽으로도 근거가 없으면 제안하지 않는다
         if float(r.get('ctr') or 0) <= 0 and not r.get('cpa'):
             continue
         _prod, _ = _media_plan(r['media'])
         r['product'] = _prod
+        r['media_disp'] = _disp_name(r['media'])
+        # 추천 물량을 그 매체의 실제 집행 규모로 맞춘다 (증액은 자체 산출 유지)
+        if not r.get('qty_fixed') and _prod != 'DA':
+            r['qty'] = _plan_qty(r['media'], _prod)
         # 성과형(CPA) 상품은 단가 자체가 DB 단가다. 발송 전환율을 적용하면
         # '물량 1만건 × 6만원 = 6억원' 같은 허수가 만들어진다.
         # 물량은 발송이 아니라 DB 건수로 제안한다. (기준과 같은 30건)
@@ -797,7 +897,7 @@ def build_recommendations(
             # 물량 × 단가로 예산을 만들면 실제 청구액과 무관한 값이 된다.
             # 과거 집행 광고비 중앙값을 추천 예산으로 쓴다.
             _da = ind_rows_all[
-                (ind_rows_all['매체'].astype(str) == r['media'])
+                (ind_rows_all['_mk'].astype(str) == r['media'])
                 & (ind_rows_all['광고상품'].apply(_product_label) == 'DA')
             ]
             _c = pd.to_numeric(_da['광고비'], errors='coerce')
@@ -824,6 +924,10 @@ def build_recommendations(
             _hist, _hsrc = _measured_cpa(r['media'], _prod)
             if _hist is not None:
                 if _hist['grade'] == '부진':
+                    seen.add(r['media'])
+                    _drop(r, f'{_hsrc} {_prod} 실측 CPA {_hist["cpa"]:,.0f}원 '
+                             f'({_hist["n"]}회 · DB {_hist["db"]:.0f}건) — 기준 '
+                             f'{good_cpa * _CPA_POOR_MULT:,.0f}원 초과', _hist['cpa'])
                     continue
                 r['hist_cpa'] = _hist['cpa']
                 r['hist_src'] = (f'{_hsrc} {_prod} 실측 CPA {_hist["cpa"]:,.0f}원 '
@@ -835,8 +939,9 @@ def build_recommendations(
                 r['exp_cpa'] = float(r['unit'])
                 r['exp_db_src'] = f'성과형 단가 {float(r["unit"]):,.0f}원 — DB 건당 과금'
             else:
-                exp_db, db_src = _expect_db(r['media'], r['qty'],
-                                            my_tbl=my_tbl, ref_tbl=ref_tbl, product=_prod)
+                exp_db, db_src = _expect_db(
+                    r['media'], r['qty'], my_tbl=my_tbl, ref_tbl=ref_tbl,
+                    product=_prod, label=r['media_disp'])
                 if exp_db and exp_db > 0:
                     r['basis'] = 'CPA'
                     r['exp_db'] = exp_db
@@ -847,20 +952,23 @@ def build_recommendations(
                     r['basis'] = 'CPA'
                     r['exp_cpa'] = float(r['cpa'])
                     r['exp_db'] = r['budget'] / float(r['cpa'])
-                    r['exp_db_src'] = f'자사 {r["media"]} 실측 CPA'
+                    r['exp_db_src'] = f'자사 {r["media_disp"]} 실측 CPA'
 
             if r['basis'] == 'CPA':
                 # 선별: 업종 공통 기준 CPA 하나로 전 브랜드를 동일하게 본다.
-                #   기준 이하 = 양호 / 2배 이내 = 보통 / 2배 초과 = 부진(제외)
+                #   기준 이하 = 양호 / 1.5배 이내 = 보통 / 초과 = 부진(제외)
                 r['exp_grade'], r['exp_grade_color'] = _cpa_grade(r['exp_cpa'], good_cpa)
                 if r['exp_grade'] == '부진':
+                    seen.add(r['media'])
+                    _drop(r, f'예상 CPA {r["exp_cpa"]:,.0f}원 — 기준 '
+                             f'{good_cpa * _CPA_POOR_MULT:,.0f}원 초과', r['exp_cpa'])
                     continue
             else:
                 # 전환 실측이 없는 매체 — 평균을 입히지 않고 CTR로만 제시한다.
                 # (CTR 레퍼런스가 DB 미수신 광고주뿐인 경우가 대표적)
                 r['ctr_only'] = True
         seen.add(r['media'])
-        r['_meta'] = _meta
+        type_n[r['type']] = type_n.get(r['type'], 0) + 1
         out.append(r)
         if not db_driven and len(out) >= 12:
             break
@@ -873,7 +981,17 @@ def build_recommendations(
                 return (0 if r.get('exp_grade') == '양호' else 1, float(r['exp_cpa']))
             return (2, -float(r.get('ctr') or 0))
         out.sort(key=_order)
-    return out[:12]
+    out = out[:12]
+
+    # 제안 총액을 최근 월 집행액에 맞춘다. 넘어가는 제안은 '추가 후보'로.
+    acc = 0.0
+    limit = monthly_budget * _BUDGET_FIT_MULT if monthly_budget else 0.0
+    for i, r in enumerate(out):
+        acc += float(r['budget'])
+        r['overflow'] = bool(limit and i > 0 and acc > limit)
+    for r in out:
+        r['_meta'] = _meta
+    return out
 
 
 # ──────────────────────────────────────────────
@@ -921,7 +1039,7 @@ def _rec_card(r: dict, rank: int) -> str:
         f'      <span style="font-size:0.62rem;color:{tone};background:{COLOR_BG};'
         f'padding:2px 8px;border-radius:999px;font-weight:700;">{r["type"]}</span>'
         f'      <span style="font-size:1rem;color:{COLOR_TEXT};font-weight:700;">'
-        f'{esc_html_safe(r["media"])}</span>'
+        f'{esc_html_safe(r.get("media_disp") or r["media"])}</span>'
         + (f'      <span style="font-size:0.62rem;color:{_PROD_COLOR.get(r["product"], COLOR_TEXT_SEC)};'
            f'background:{COLOR_BG};border:1px solid {COLOR_BORDER};padding:2px 7px;'
            f'border-radius:6px;font-weight:700;">{esc_html_safe(r["product"])}</span>'
@@ -930,6 +1048,10 @@ def _rec_card(r: dict, rank: int) -> str:
            f'border:1px solid {COLOR_BORDER};padding:1px 6px;border-radius:999px;'
            f'font-weight:700;" title="이 매체는 전환(DB) 실측 레퍼런스가 없어 CTR로만 추정합니다">'
            f'CTR 기준</span>' if r.get('ctr_only') else '')
+        + (f'      <span style="font-size:0.6rem;color:{COLOR_TEXT_TER};'
+           f'border:1px dashed {COLOR_BORDER};padding:1px 6px;border-radius:999px;"'
+           f' title="최근 월 집행액을 넘는 추가 후보입니다">추가 후보</span>'
+           if r.get('overflow') else '')
         + f'    </div>'
         f'    <div style="text-align:right;">'
         + (
@@ -1107,41 +1229,53 @@ def render(df: pd.DataFrame):
             '기준: 자사 평균 CTR 이상(증액) · 동종업계 검증 CTR(신규) · '
             '과거 자사 실적 CTR(휴면 복귀)'
         )
-    st.markdown(
-        f'<div style="border:1px solid {COLOR_BORDER_SUBTLE};border-radius:8px;'
-        f'padding:9px 13px;background:{COLOR_CARD};margin-bottom:12px;'
-        f'font-size:0.73rem;color:{COLOR_TEXT_SEC};line-height:1.55;">'
-        f'📐 <b style="color:{COLOR_TEXT};">선별 기준</b> — {criteria}</div>',
-        unsafe_allow_html=True,
-    )
+    with st.expander('📐 선별 기준 — 이 숫자들을 어떻게 뽑았나', expanded=False):
+        st.markdown(
+            f'<div style="font-size:0.78rem;color:{COLOR_TEXT_SEC};line-height:1.6;">'
+            f'{criteria}</div>',
+            unsafe_allow_html=True,
+        )
 
-    total_budget = sum(r['budget'] for r in view)
-    total_clicks = sum(r['exp_clicks'] for r in view)
-    avg_ctr = (sum(r['ctr'] * r['qty'] for r in view) / sum(r['qty'] for r in view)) if view else 0
+    # 추가 후보(월 집행액 초과분)는 합계에서 분리한다 — 바로 돌릴 수 있는
+    # 조합이 얼마인지가 제안서의 핵심 숫자다.
+    core = [r for r in view if not r.get('overflow')]
+    extra = [r for r in view if r.get('overflow')]
+    total_budget = sum(r['budget'] for r in core)
+    total_clicks = sum(r['exp_clicks'] for r in core)
+    _qsum = sum(r['qty'] for r in core)
+    avg_ctr = (sum(r['ctr'] * r['qty'] for r in core) / _qsum) if _qsum else 0
     # 평균 CPA는 **전환 실측이 있는 제안끼리만** 계산한다.
     # CTR 기준 제안의 예산을 분자에 넣으면 CPA가 부풀려진다.
-    db_view = [r for r in view if r.get('exp_db')]
+    db_view = [r for r in core if r.get('exp_db')]
+    ctr_view = [r for r in core if not r.get('exp_db')]
     db_budget = sum(r['budget'] for r in db_view)
     db_total = sum(float(r['exp_db']) for r in db_view)
-    top = view[0] if view else None
+    n_good = sum(1 for r in core if r.get('exp_grade') == '양호')
+    monthly = float(meta.get('monthly_budget') or 0)
+    top = core[0] if core else None
 
     c1, c2, c3, c4 = st.columns(4)
     for col, (lab, val, sub) in zip(
         [c1, c2, c3, c4],
         [
-            ('제안 매체', f'{len(view)}개',
-             (f'전환 기준 {len(db_view)}개 · CTR 기준 {len(view) - len(db_view)}개'
-              if db_view and len(db_view) != len(view) else f'전체 {len(recs)}개 중')),
-            ('총 추천 예산', compact_num(total_budget, '원'), '전체 제안 합계'),
+            ('제안 매체', f'{len(core)}개',
+             (f'전환 기준 {len(db_view)}개 · CTR 기준 {len(ctr_view)}개'
+              + (f' · 추가 후보 {len(extra)}개' if extra else ''))
+             if meta.get('db_driven') else
+             (f'전체 {len(recs)}개 중' + (f' · 추가 후보 {len(extra)}개' if extra else ''))),
+            ('실행 예산', compact_num(total_budget, '원'),
+             (f'최근 월 집행 {compact_num(monthly, "원")} 대비 '
+              f'{total_budget / monthly * 100:.0f}%') if monthly else '제안 합계'),
             (('예상 총 DB', f'{db_total:,.0f}건',
               f'평균 CPA {db_budget / max(db_total, 1):,.0f}원 · '
-              f'예산 {compact_num(db_budget, "원")} 기준')
+              f'기준 충족 {n_good}개')
              if db_view else
              ('예상 총 클릭', f'{total_clicks:,}회', f'가중 CTR {avg_ctr:.2f}%')),
-            ('최고 기대 매체', top['media'] if top else '—',
+            ('최우선 매체', (top.get('media_disp') or top['media']) if top else '—',
              ('' if not top else
-              (f'예상 CPA {float(top["exp_cpa"]):,.0f}원' if top.get('exp_cpa')
-               else f'CTR {top["ctr"]:.2f}%'))),
+              (f'{top.get("product", "")} · 예상 CPA {float(top["exp_cpa"]):,.0f}원'
+               if top.get('exp_cpa')
+               else f'{top.get("product", "")} · CTR {top["ctr"]:.2f}%'))),
         ],
     ):
         with col:
@@ -1159,9 +1293,83 @@ def render(df: pd.DataFrame):
 
     st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
 
-    # ── 제안 카드 ──
-    for i, r in enumerate(view, 1):
-        st.markdown(_rec_card(r, i), unsafe_allow_html=True)
+    # ── 한눈에 보기 ──
+    def _perf_txt(r: dict) -> str:
+        if r.get('exp_db'):
+            return (f'DB {float(r["exp_db"]):.0f}건 · '
+                    f'CPA {float(r["exp_cpa"]):,.0f}원')
+        return f'CTR {r["ctr"]:.2f}% · 클릭 {r["exp_clicks"]:,}회'
+
+    def _qty_txt(r: dict) -> str:
+        if r.get('product') == 'DA':
+            return f'노출 {r["qty"]:,}' if r['qty'] else '—'
+        if r.get('cpa_product'):
+            return f'DB {r["qty"]:,}건'
+        return f'{r["qty"]:,}건'
+
+    if view:
+        st.dataframe(
+            pd.DataFrame([{
+                '유형': r['type'],
+                '매체': r.get('media_disp') or r['media'],
+                '상품': r.get('product', ''),
+                '물량': _qty_txt(r),
+                '예산': f'{r["budget"]:,}원',
+                '예상 성과': _perf_txt(r),
+                '등급': r.get('exp_grade') or ('CTR 기준' if r.get('ctr_only') else '—'),
+                '비고': '추가 후보' if r.get('overflow') else '',
+                '근거': r.get('exp_db_src') or r.get('ctr_src', ''),
+            } for r in view]),
+            hide_index=True, use_container_width=True,
+        )
+        st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
+
+    # ── 제안 카드 (섹션 분리) ──
+    def _section(title: str, rows: list, desc: str = ''):
+        if not rows:
+            return
+        st.markdown(
+            f'<div style="font-size:0.9rem;font-weight:700;color:{COLOR_TEXT};'
+            f'margin:4px 0 2px;">{title} <span style="font-weight:500;'
+            f'color:{COLOR_TEXT_SEC};font-size:0.78rem;">{len(rows)}개</span></div>'
+            + (f'<div style="font-size:0.72rem;color:{COLOR_TEXT_TER};'
+               f'margin-bottom:8px;">{desc}</div>' if desc else ''),
+            unsafe_allow_html=True,
+        )
+        for i, r in enumerate(rows, 1):
+            st.markdown(_rec_card(r, i), unsafe_allow_html=True)
+
+    if meta.get('db_driven'):
+        _section('🎯 전환 기준 제안', db_view,
+                 '그 매체의 DB 실측이 있어 예상 DB·CPA로 판단한 제안입니다.')
+        _section('👆 CTR 기준 제안', ctr_view,
+                 '전환 실측이 없는 매체입니다. DB 추정치를 만들지 않고 CTR로만 제시합니다.')
+    else:
+        _section('👆 제안 매체', core)
+
+    if extra:
+        with st.expander(f'➕ 추가 후보 {len(extra)}개 — 최근 월 집행액을 넘는 제안',
+                         expanded=False):
+            st.caption(
+                f'위 실행 예산({compact_num(total_budget, "원")})에 더해 집행할 경우의 후보입니다.'
+                + (f' 최근 월 집행액은 {compact_num(monthly, "원")}입니다.' if monthly else '')
+            )
+            for i, r in enumerate(extra, 1):
+                st.markdown(_rec_card(r, i), unsafe_allow_html=True)
+
+    _dropped = meta.get('dropped') or []
+    if _dropped:
+        with st.expander(f'🚫 제외한 매체 {len(_dropped)}개 — 왜 빠졌는지', expanded=False):
+            st.dataframe(
+                pd.DataFrame([{
+                    '매체': d['media'], '유형': d['type'],
+                    '상품': d.get('product') or '',
+                    '예상/실측 CPA': (f'{float(d["exp_cpa"]):,.0f}원'
+                                 if d.get('exp_cpa') else '—'),
+                    '제외 사유': d['reason'],
+                } for d in _dropped]),
+                hide_index=True, use_container_width=True,
+            )
 
     # ── 운영팀 전달용 텍스트 ──
     st.markdown('<div class="space-md"></div>', unsafe_allow_html=True)
@@ -1170,8 +1378,9 @@ def render(df: pd.DataFrame):
         lines.append(f'# 기준 CPA {gcpa:,.0f}원 이하 양호 · '
                      f'{gcpa * _CPA_POOR_MULT:,.0f}원 초과 제외 ({industry} 공통 기준)')
     lines.append('')
-    for r in view:
-        lines.append(f'[{r["type"]}] {r["media"]}'
+    for r in core + extra:
+        lines.append(('[추가 후보] ' if r.get('overflow') else '')
+                     + f'[{r["type"]}] {r.get("media_disp") or r["media"]}'
                      + (f' / {r["product"]}' if r.get('product') else '')
                      + (f' — {r["exp_grade"]}' if r.get('exp_grade') else '')
                      + (' (CTR 기준 — 전환 실측 없음)' if r.get('ctr_only') else ''))
@@ -1191,6 +1400,15 @@ def render(df: pd.DataFrame):
             tg = re.sub(r'\s*\n\s*', ' / ', str(r['target_raw']).strip())
             lines.append(f'  - 추천 타겟: {tg[:150]}')
         lines.append('')
-    lines.append(f'합계: {len(view)}개 매체 / 예산 {total_budget:,}원 / 예상 클릭 {total_clicks:,}회')
+    if db_view:
+        lines.append(f'합계(실행): {len(core)}개 매체 / 예산 {total_budget:,}원 / '
+                     f'예상 DB {db_total:,.0f}건 / 평균 CPA '
+                     f'{db_budget / max(db_total, 1):,.0f}원')
+    else:
+        lines.append(f'합계(실행): {len(core)}개 매체 / 예산 {total_budget:,}원 / '
+                     f'예상 클릭 {total_clicks:,}회')
+    if extra:
+        lines.append(f'추가 후보 {len(extra)}개 / 예산 '
+                     f'{sum(r["budget"] for r in extra):,}원')
     st.caption('📋 복사용 제안서')
     st.code('\n'.join(lines), language='text')
