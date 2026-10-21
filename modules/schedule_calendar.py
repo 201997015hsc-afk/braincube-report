@@ -31,7 +31,10 @@ from modules.ui_helpers import render_empty_state, esc_html_safe
 _WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
 
 # 타겟 요약용 — 연령·성별과 대표 시그널 키워드
-_RE_AGE = re.compile(r'(\d{2})\s*[-~]\s*(\d{2})\s*세?')
+# ⚠ '세'를 필수로 둔다. optional로 두면 "20-23년 유치원 결제자" 같은
+#    연도 범위를 연령으로 잘못 읽어 "20-23세"로 요약된다.
+_RE_AGE = re.compile(r'(\d{2})\s*[-~]\s*(\d{2})\s*세')
+_RE_AGE_DECADE = re.compile(r'(\d{2})\s*대\s*[-~]\s*(\d{2})\s*대')
 _SIGNAL_KEYWORDS = [
     '유치원', '어린이집', '초등', '중등', '중학', '고등', '스쿨뱅킹', '산후조리원',
     '국민행복카드', '이유식', '기저귀', '학원', '수발신', '통화', '교복', '키즈',
@@ -55,6 +58,10 @@ def _summarize_target(raw) -> str:
     m = _RE_AGE.search(flat)
     if m:
         parts.append(f'{m.group(1)}-{m.group(2)}세')
+    else:
+        md = _RE_AGE_DECADE.search(flat)
+        if md:
+            parts.append(f'{md.group(1)}-{md.group(2)}대')
     if re.search(r'남녀|남성.*여성|여성.*남성', flat):
         parts.append('남녀')
     elif re.search(r'여성|여자', flat):

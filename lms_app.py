@@ -34,6 +34,7 @@ from modules import (
     anomaly, budget_optimizer, budget_simulator, competitor, email_report,
     industry_timing, industry_intel, copy_analysis, monthly_pdf,
     media_trend, opportunity_media, overview, media_overview, industry_overview,
+    media_mix,
     global_filter, targeting_analysis,
 )
 # copy_analysis는 네비에서 제외 (모듈은 보존 — 추후 NLP 카피 분석 참고용)
@@ -101,13 +102,9 @@ _NAV_ITEMS = [
         ],
     },
     {
-        "cat": "운영", "label": "의사결정 도구", "icon": "",
+        "cat": "운영", "label": "미디어 믹스 제안", "icon": "",
         "tabs": [
-            {"label": "전략 제안",         "render": business.render,         "scope": "client"},
-            {"label": "예산 최적 배분",     "render": budget_optimizer.render, "scope": "internal"},
-            {"label": "예산 시뮬레이터",   "render": budget_simulator.render, "scope": "internal"},
-            {"label": "클릭 예측",         "render": prediction.render,       "scope": "internal"},
-            {"label": "이상치 감지",       "render": anomaly.render,          "scope": "internal"},
+            {"label": "미디어 믹스 제안", "render": media_mix.render, "scope": "client"},
         ],
     },
     {
