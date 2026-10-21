@@ -24,13 +24,19 @@ from modules.config import (
     COLOR_TEXT, COLOR_TEXT_SEC, COLOR_TEXT_TER, COLOR_BORDER, COLOR_BORDER_SUBTLE,
     COLOR_CARD, COLOR_BG, COLOR_SUCCESS, COLOR_DANGER, COLOR_WARNING, COLOR_BLUE,
     BRAND_PRIMARY, compact_num, MIN_SENDS_FOR_CTR_CLAIM,
-    GOOD_CPA, REF_DB_FOR_CPA, PROMO_ONLY_REFERENCES,
+    GOOD_CPA, PROMO_ONLY_REFERENCES, INCLUDE_PERF_PRODUCTS,
     CPA_PROPOSE_MULT, PRODUCT_DEFAULT_QTY, MEDIA_VARIANT_SUFFIXES,
 )
 from modules.ui_helpers import render_page_header, render_empty_state, esc_html_safe
 from modules.data_processing import is_db_driven as _shared_is_db_driven
 
-_DORMANT_DAYS = 90      # 휴면 판정 기준
+# 최근 집행 판정 창. 증액(최근 성과 우수)과 휴면(그 이전 미집행)이
+# 같은 창을 써야 사이에 낀 매체가 사라지지 않는다.
+#   (90일/62일로 엇갈려 있어서 62~90일 전에 집행한 매체는 증액 후보도
+#    휴면 후보도 아니었다 — 온리원 텐핑·케이뱅크·디비디비딥 등 성과형
+#    주력 매체가 모두 이 구간에 있었다)
+_RECENT_DAYS = 62
+_DORMANT_DAYS = _RECENT_DAYS
 _NEW_MEDIA_DAYS = 60    # 업종 내 신규 매체 판정 기준
 _REF_WINDOW_DAYS = 180  # 동종업계 레퍼런스 조회 기간
 _DEFAULT_QTY = 50_000   # 기본 권장 발송량
@@ -255,6 +261,19 @@ def _cpa_grade(cpa: float, good: float = GOOD_CPA) -> tuple[str, str]:
     if cpa <= good * _CPA_POOR_MULT:
         return '보통', COLOR_WARNING
     return '부진', COLOR_DANGER
+
+
+def _volume_weight(perf: dict, target_db: int = 30) -> float:
+    """1회 집행당 받아온 DB 규모로 매긴 가중치 (0~1).
+
+    CPA만으로 줄을 세우면 '8번 집행해서 DB 18건'처럼 규모가 안 나오는
+    매체가 '7번에 1,062건'짜리를 밀어낸다. 단가가 싸도 물량이 안 나오면
+    믹스에서 차지하는 의미가 작다.
+      (온리원 런즈 CPA 30,000원 2.3건/회 vs 텐핑 55,000원 151.7건/회)
+    """
+    n = max(int(perf.get('n') or 1), 1)
+    per_run = float(perf.get('db') or 0) / n
+    return max(min(per_run / float(target_db), 1.0), 0.05)
 
 
 def _db_rate_table(df: pd.DataFrame) -> dict:
@@ -722,13 +741,35 @@ def build_recommendations(
 
     # ── 🔁 휴면 복귀 ──
     for media in sorted(my_media_all - recent_media):
-        hist = me_q[me_q['_mk'].astype(str) == media]
-        if hist.empty:
-            continue
-        my_ctr = _ctr(hist['클릭수'].fillna(0).sum(), hist['발송건'].sum())
-        last_d = me[me['_mk'].astype(str) == media]['_d'].max()
+        rows_all = me[me['_mk'].astype(str) == media]
+        last_d = rows_all['_d'].max()
         days = int((latest - last_d).days)
         tgt_s, tgt_raw = _best_target_for(me, media)
+        hist = me_q[me_q['_mk'].astype(str) == media]
+        if hist.empty:
+            # 성과형(CPA) 전용 매체 — 발송·CTR 개념이 없어 메시징 기준으로는
+            # 걸리지 않는다. DB 건당 과금이라 실측 CPA가 곧 성과다.
+            #   (온리원 텐핑 DB 1,062건 CPA 55,000원 / 디비디비딥 583건
+            #    44,000원처럼 가장 효율 좋은 매체들이 여기 있었다)
+            if not INCLUDE_PERF_PRODUCTS:
+                continue        # 성과형 매체는 현재 믹스 대상이 아니다
+            perf = _db_perf(rows_all, good_cpa=good_cpa) if db_driven else None
+            if perf is None or perf['grade'] == '부진':
+                continue
+            recs.append({
+                'type': '🔁 휴면 복귀', 'tone': COLOR_WARNING, 'media': media,
+                'ctr': 0.0, 'ctr_src': f'자사 실적 {perf["n"]}건',
+                'qty': _DEFAULT_QTY, 'unit': _unit_price(media),
+                'target': tgt_s, 'target_raw': tgt_raw,
+                'why': (f'{days}일간 미집행. 실측 CPA {perf["cpa"]:,.0f}원 '
+                        f'({perf["grade"]}) — 기준 {good_cpa:,.0f}원'),
+                'score': (good_cpa / perf['cpa']) * 4.0 * _volume_weight(perf),
+                'evidence': (f'자사 {perf["n"]}건 · DB {perf["db"]:.0f}건 · '
+                             f'최종 집행 {last_d:%Y-%m-%d}'),
+                'cpa': perf['cpa'], 'db': perf['db'],
+            })
+            continue
+        my_ctr = _ctr(hist['클릭수'].fillna(0).sum(), hist['발송건'].sum())
         recs.append({
             'type': '🔁 휴면 복귀', 'tone': COLOR_WARNING, 'media': media,
             'ctr': my_ctr, 'ctr_src': f'자사 실적 {len(hist)}건',
@@ -763,8 +804,13 @@ def build_recommendations(
     # 자사 집행 이력이 없어도 **타사가 DB를 잘 뽑은 매체**는 추천한다.
     #   CTR만 보는 위 블록과 달리 전환 실측으로 고르므로 DB 광고주에게
     #   훨씬 actionable하다. CTR이 낮아도 DB가 나오는 매체가 실제로 있다.
-    for media in sorted(set(others_db['_mk'].dropna().astype(str)) - my_media_all):
-        rows = others_db[others_db['_mk'].astype(str) == media]
+    _peer_cpa_src = others_db
+    if not INCLUDE_PERF_PRODUCTS and not others_db.empty:
+        # 성과형 실적으로 고른 매체를 메시징 단가로 제안하면 근거가 어긋난다
+        _peer_cpa_src = others_db[
+            others_db['광고상품'].apply(_product_label) != _PRODUCT_PERF]
+    for media in sorted(set(_peer_cpa_src['_mk'].dropna().astype(str)) - my_media_all):
+        rows = _peer_cpa_src[_peer_cpa_src['_mk'].astype(str) == media]
         perf = _db_perf(rows, good_cpa=good_cpa)
         if perf is None or perf['grade'] == '부진':
             continue
@@ -779,8 +825,9 @@ def build_recommendations(
             'target': tgt_s, 'target_raw': tgt_raw,
             'why': (f'타사 CPA {perf["cpa"]:,.0f}원 ({perf["grade"]}) — '
                     f'기준 {good_cpa:,.0f}원 · 자사 미집행'),
-            # 전환으로 검증된 매체는 CTR 기반 제안보다 항상 위로
-            'score': (good_cpa / perf['cpa']) * 5.0,
+            # 전환으로 검증된 매체는 CTR 기반 제안보다 항상 위로.
+            # 규모가 안 나오는 매체가 단가만으로 앞서지 않도록 가중한다.
+            'score': (good_cpa / perf['cpa']) * 5.0 * _volume_weight(perf),
             'evidence': (f'타사 DB {perf["db"]:.0f}건 / 광고비 '
                          f'{compact_num(perf["cost"], "원")} · {perf["n"]}회 — '
                          f'{", ".join(pb)}'),
@@ -800,8 +847,8 @@ def build_recommendations(
             _d = float(_m['_db'].sum())
             if _d > 0:
                 my_cpa_base = _c / _d
-    recent_all = me[me['_d'] >= latest - pd.Timedelta(days=62)]
-    recent_q = me_q[me_q['_d'] >= latest - pd.Timedelta(days=62)]
+    recent_all = me[me['_d'] >= latest - pd.Timedelta(days=_RECENT_DAYS)]
+    recent_q = me_q[me_q['_d'] >= latest - pd.Timedelta(days=_RECENT_DAYS)]
     if not recent_q.empty or not recent_all.empty:
         base_ctr = _ctr(recent_q['클릭수'].fillna(0).sum(), recent_q['발송건'].sum()) \
             if not recent_q.empty else 0
@@ -842,7 +889,8 @@ def build_recommendations(
                             f'목표 {good_cpa:,.0f}원 이내'),
                     'evidence': (f'최근 DB {perf["db"]:.0f}건 / 광고비 '
                                  f'{compact_num(perf["cost"], "원")} · {n}회 집행'),
-                    'score': (good_cpa / perf['cpa']) * 3.0,   # CPA가 좋을수록 높은 점수
+                    # CPA가 좋을수록 + 규모가 나올수록 높은 점수
+                    'score': (good_cpa / perf['cpa']) * 3.0 * _volume_weight(perf),
                     'cpa': perf['cpa'], 'db': perf['db'],
                 })
                 continue
@@ -943,6 +991,13 @@ def build_recommendations(
         # '물량 1만건 × 6만원 = 6억원' 같은 허수가 만들어진다.
         # 물량은 발송이 아니라 DB 건수로 제안한다. (기준과 같은 30건)
         r['cpa_product'] = _prod == _PRODUCT_PERF
+        if r['cpa_product'] and not INCLUDE_PERF_PRODUCTS:
+            seen.add(r['media'])
+            _drop(r, '성과형(CPA) 매체 — 현재 믹스 제안 대상에서 제외')
+            continue
+        if r['cpa_product'] and not r.get('qty_fixed'):
+            # 성과형 물량 = DB 건수. 그 매체에서 실제로 받던 건수를 따른다.
+            r['qty'] = _plan_qty(r['media'], _prod)
         if _prod == 'DA':
             # DA는 발송 단가 과금이 아니라 노출·기간 단위 집행이다.
             # 물량 × 단가로 예산을 만들면 실제 청구액과 무관한 값이 된다.
@@ -963,8 +1018,6 @@ def build_recommendations(
             # 신뢰할 단가가 없으면 예산·예상 CPA를 만들 수 없다 → 제안 제외
             if float(r.get('unit') or 0) < _MIN_UNIT_PRICE:
                 continue
-            if r['cpa_product']:
-                r['qty'] = REF_DB_FOR_CPA
             r['budget'] = int(r['qty'] * r['unit'])
         r['exp_clicks'] = int(r['qty'] * r['ctr'] / 100)
 
@@ -1435,6 +1488,9 @@ def render(df: pd.DataFrame):
             + (f'<br>프로모션·특가로 집행했던 매체는 제안·레퍼런스에서 제외합니다 '
                f'— {", ".join(sorted(k.split("|")[-1] for k in PROMO_ONLY_REFERENCES))}'
                if PROMO_ONLY_REFERENCES else '')
+            + ('<br>성과형(CPA·CPS·퍼미션콜) 매체는 현재 제안에서 제외합니다 '
+               '— 메시징(LMS·카플친·앱푸시·DA) 기준으로만 믹스를 짭니다.'
+               if not INCLUDE_PERF_PRODUCTS else '')
         )
     else:
         criteria = (
